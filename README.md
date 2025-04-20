@@ -16,7 +16,7 @@ Photo Migrator is a desktop application designed to reliably and efficiently upl
 *   **User Interface:** Built with Electron and React for a modern desktop experience, showing progress and allowing user control (Pause/Resume/Cancel).
 *   **Secure:** Handles Google OAuth tokens securely using system keychains/credential managers.
 
-## Technology Stack (Planned)
+## Technology Stack
 
 *   **Framework:** Electron
 *   **UI:** React, Tailwind CSS
@@ -24,10 +24,63 @@ Photo Migrator is a desktop application designed to reliably and efficiently upl
 *   **macOS File Access:** Native Swift helper tool
 *   **Database:** SQLite
 *   **Authentication:** Google OAuth 2.0
+*   **Testing:** Vitest
+
+## Development Setup
+
+1. **Prerequisites**
+   - Node.js (version 18 or later)
+   - npm (version 8 or later)
+
+2. **Installation**
+   ```bash
+   # Clone the repository
+   git clone [repository-url]
+   cd photo-migrator
+
+   # Install dependencies
+   npm install
+   ```
+
+3. **Development Commands**
+   ```bash
+   # Build the project
+   npm run build
+
+   # Run in development mode with auto-recompilation
+   npm run dev
+
+   # Run tests
+   npm test
+   
+   # Run tests with coverage
+   npm run test:coverage
+   
+   # Lint code
+   npm run lint
+   
+   # Fix linting issues
+   npm run lint:fix
+   ```
+
+4. **CLI Commands** (Currently in development)
+   ```bash
+   # Start authentication flow with Google
+   npm run login
+   
+   # Scan photos library
+   npm run scan
+   
+   # Upload photos to Google Photos
+   npm run upload
+   
+   # Check upload status
+   npm run status
+   ```
 
 ## Current Status
 
-Project setup and initial documentation phase complete. Core development is underway.
+Initial project setup complete. Core development is underway.
 
 ## Getting Started
 
@@ -39,4 +92,4 @@ _(Contribution guidelines will be added later)_
 
 ## License
 
-_(License information to be determined)_ 
+MIT 

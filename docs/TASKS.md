@@ -12,19 +12,19 @@ This document outlines the development tasks required to build the uploader appl
 **Goal:** Establish the fundamental backend logic for scanning the Apple Photos library on macOS, authenticating with Google, uploading files, and basic state management. Output will be via console logs.
 
 ### 1.1 Project Setup & Core Dependencies
-- [ ] **Task 1.1.1:** Initialize Node.js project (`npm init`).
-- [ ] **Task 1.1.2:** Set up TypeScript configuration (`tsconfig.json`).
+- [x] ✅ **Task 1.1.1:** Initialize Node.js project (`npm init`).
+- [x] ✅ **Task 1.1.2:** Set up TypeScript configuration (`tsconfig.json`).
   - *Detail:* Configure strict mode, module resolution (NodeNext), target (ES2022 or later), and output directory.
-- [ ] **Task 1.1.3:** Install core dependencies:
-  - [ ] `typescript`, `@types/node`
-  - [ ] `google-auth-library` (for OAuth)
-  - [ ] `axios` or `node-fetch` (for API calls)
-  - [ ] `better-sqlite3` (for local database)
-  - [ ] `winston` or similar (for logging)
-- [ ] **Task 1.1.4:** Set up basic project structure (e.g., `src/`, `dist/`, `scripts/`).
-- [ ] **Task 1.1.5:** Configure ESLint and Prettier for code quality.
+- [x] ✅ **Task 1.1.3:** Install core dependencies:
+  - [x] ✅ `typescript`, `@types/node`
+  - [x] ✅ `google-auth-library` (for OAuth)
+  - [x] ✅ `axios` or `node-fetch` (for API calls)
+  - [x] ✅ `better-sqlite3` (for local database)
+  - [x] ✅ `winston` or similar (for logging)
+- [x] ✅ **Task 1.1.4:** Set up basic project structure (e.g., `src/`, `dist/`, `scripts/`).
+- [x] ✅ **Task 1.1.5:** Configure ESLint and Prettier for code quality.
   - *Detail:* Use recommended rulesets (`eslint:recommended`, `plugin:@typescript-eslint/recommended`) and integrate Prettier.
-- [ ] **Task 1.1.6:** Set up `Vitest` or `Jest` for unit testing.
+- [x] ✅ **Task 1.1.6:** Set up `Vitest` or `Jest` for unit testing.
   - *Detail:* Configure test runner, add basic test script to `package.json`.
 
 ### 1.2 SQLite Database Setup
