@@ -116,18 +116,18 @@ This document outlines the development tasks required to build the uploader appl
 - [x] ✅ **Task 1.5.5:** Add basic unit tests for `Uploader` (mocking API calls and `DatabaseManager`).
 
 ### 1.6 Basic CLI Orchestration
-- [x] ✅ **Task 1.6.1:** Create main CLI entry point (`src/main.ts`).
-- [ ] **Task 1.6.2:** Add command-line arguments parsing (e.g., using `yargs`).
-  - *Commands:* `scan`, `upload`, `login`, `status`.
-  - *Filters:* Add `--type` option to filter by media type (photos, videos, or all).
-- [ ] **Task 1.6.3:** Implement `login` command (triggers `AuthManager`).
-- [ ] **Task 1.6.4:** Implement `scan` command (triggers `MediaScanner`).
-- [ ] **Task 1.6.5:** Implement `upload` command (loops through pending media items, triggers `Uploader`).
-  - *Detail:* Add basic console logging for progress (e.g., "Uploading file X of Y...").
-  - *Media Types:* Add support for filtering by media type (`--photos-only`, `--videos-only`).
-- [ ] **Task 1.6.6:** Implement `status` command (queries `DatabaseManager` for counts).
-  - *Detail:* Report counts by media type (photos vs videos).
-- [ ] **Task 1.6.7:** Add `npm` scripts for running commands (e.g., `npm run scan`, `npm run upload`).
+- [✅] **Task 1.6.1:** Create main CLI entry point (`src/main.ts`).
+- [✅] **Task 1.6.2:** Add command-line arguments parsing (e.g., using `yargs`).
+    - *Commands:* `scan`, `upload`, `login`, `status`.
+    - *Filters:* Add `--type` option to filter by media type (photos, videos, or all).
+- [✅] **Task 1.6.3:** Implement `login` command (triggers `AuthManager`).
+- [✅] **Task 1.6.4:** Implement `scan` command (triggers `MediaScanner`).
+- [✅] **Task 1.6.5:** Implement `upload` command (loops through pending media items, triggers `Uploader`).
+    - *Detail:* Add basic console logging for progress (e.g., "Uploading file X of Y...").
+    - *Media Types:* Add support for filtering by media type (`--photos-only`, `--videos-only`).
+- [✅] **Task 1.6.6:** Implement `status` command (queries `DatabaseManager` for counts).
+    - *Detail:* Report counts by media type (photos vs videos).
+- [✅] **Task 1.6.7:** Add `npm` scripts for running commands (e.g., `npm run scan`, `npm run upload`).
 
 ---
 

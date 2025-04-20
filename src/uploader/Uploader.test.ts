@@ -2,11 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Uploader } from './Uploader';
 import { DatabaseManager, MediaItem, MediaStatus } from '../utils/database';
 import { AuthManager } from '../auth/AuthManager';
-import axios from 'axios';
+import axios, { AxiosRequestConfig } from 'axios';
 import fs from 'fs';
 import { Readable } from 'stream';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
+
+// Import the constants from the implementation file
+import { UPLOAD_ENDPOINT, MEDIA_ITEMS_CREATE_ENDPOINT } from './Uploader';
 
 // Mocks
 vi.mock('../utils/database');
@@ -298,27 +301,43 @@ describe('Uploader', () => {
         const item = createMockMediaItem();
         mockDbManager.getPendingMedia.mockReturnValue([item]);
 
-        // Mock 503 then 200 for byte upload, then successful creation
-        mockAxiosInstance
-            .mockRejectedValueOnce({ isAxiosError: true, response: { status: 503 }, message: 'Service Unavailable' })
-            .mockResolvedValueOnce({ status: 200, data: MOCK_UPLOAD_TOKEN }) // Successful byte upload on retry
-            .mockResolvedValueOnce({ // Successful media item creation - simplified mock
-                status: 200,
-                data: { 
-                    newMediaItemResults: [ 
-                        { 
-                            uploadToken: MOCK_UPLOAD_TOKEN, 
-                            status: { code: 0, message: 'OK' }, // Ensure status object exists
-                            mediaItem: { id: MOCK_GOOGLE_ID } 
-                        }
-                    ] 
-                },
-            });
+        // --- Refactored Mock Setup ---
+        let byteUploadAttempts = 0;
+        mockAxiosInstance.mockImplementation(async (config: AxiosRequestConfig): Promise<any> => {
+            if (config.url === UPLOAD_ENDPOINT) {
+                byteUploadAttempts++;
+                if (byteUploadAttempts === 1) {
+                    // First attempt: Fail byte upload
+                    throw { isAxiosError: true, response: { status: 503 }, message: 'Service Unavailable', config };
+                } else {
+                    // Second attempt: Succeed byte upload
+                    return { status: 200, data: MOCK_UPLOAD_TOKEN };
+                }
+            } else if (config.url === MEDIA_ITEMS_CREATE_ENDPOINT) {
+                // Succeed media item creation
+                return {
+                    status: 200,
+                    data: {
+                        newMediaItemResults: [
+                            {
+                                uploadToken: MOCK_UPLOAD_TOKEN,
+                                status: { code: 0, message: 'OK' },
+                                mediaItem: { id: MOCK_GOOGLE_ID }
+                            }
+                        ]
+                    },
+                };
+            } else {
+                // Throw for unexpected URL
+                throw new Error(`Unexpected axios call to URL: ${config.url}`);
+            }
+        });
+        // --- End Refactored Mock Setup ---
 
         await uploader.processUploadQueue(1);
 
         // Axios called 3 times: 1 fail (bytes), 1 success (bytes), 1 success (create)
-        expect(mockAxiosInstance).toHaveBeenCalledTimes(3); // Reverted expected calls
+        expect(mockAxiosInstance).toHaveBeenCalledTimes(3); // This should now pass
         expect(mockDbManager.updateMediaStatus).toHaveBeenCalledWith(item.id, 'uploaded');
         expect(mockDbManager.updateGooglePhotosId).toHaveBeenCalledWith(item.id, MOCK_GOOGLE_ID);
     });
