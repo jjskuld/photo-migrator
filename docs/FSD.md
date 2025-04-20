@@ -103,6 +103,13 @@ CREATE TABLE settings (
   value TEXT
 );
 
+-- Migration tracking table for schema versioning
+CREATE TABLE migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL,
+  description TEXT
+);
+
 -- Indexes for optimizing common queries
 CREATE INDEX idx_media_status ON media_items(status);
 CREATE INDEX idx_media_sha256_hash ON media_items(sha256_hash);
@@ -131,6 +138,19 @@ CREATE INDEX idx_batches_status ON batches(status);
   }
 }
 ```
+
+### 4.1.1 Migration Tracking
+**Responsibility:** Track and apply incremental schema changes over time using versioned migrations.
+
+**Migration Process:**
+- On startup, the application initializes the database and creates the `migrations` table if it does not exist.
+- Reads existing migration IDs from the `migrations` table.
+- Executes each pending migration script in ascending order; each script is idempotent and encapsulates its own checks.
+- Records the successful application of each migration in the `migrations` table with `id`, `applied_at`, and `description`.
+
+**Migration Scripts Location:** `src/utils/migrations.ts`, e.g.:  
+- `2023-04-20-add-is-in-icloud`: Adds `is_in_icloud` column to `media_items`.  
+- Future migrations follow the same pattern with unique IDs and descriptions.
 
 ---
 
@@ -217,9 +237,6 @@ CREATE INDEX idx_batches_status ON batches(status);
 - `incrementRetryCount(id)`
 - `getMediaByStatus(status, type?, limit?)`
 - `getMediaById(id)`
-- `getMediaCountByType(type)`
-
----
 
 ### 5.5 DiskMonitor
 **Responsibility:** Query available disk space using `diskusage` (cross-platform Node native module).
@@ -303,7 +320,6 @@ CREATE INDEX idx_batches_status ON batches(status);
 **Storage:** Secure storage:
 - macOS: Keychain
 - Windows: Credential Manager
-
 ---
 
 ### 5.10 SwiftBridge
@@ -443,4 +459,7 @@ flowchart TD
 - **Media Item**: A photo or video to be uploaded
 - **Codec**: Video encoding format (e.g., H.264, HEVC)
 - **Container**: Media file format (e.g., MP4, MOV)
+
+
+
 

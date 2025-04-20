@@ -9,9 +9,10 @@ import retry from 'async-retry'; // Import async-retry
 
 const logger = createLogger('Uploader');
 
-// Google Photos API Endpoints
-export const UPLOAD_ENDPOINT = 'https://photoslibrary.googleapis.com/v1/uploads';
-export const MEDIA_ITEMS_CREATE_ENDPOINT = 'https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate';
+// Constants for Google Photos API
+const GOOGLE_PHOTOS_API_BASE_URL = 'https://photoslibrary.googleapis.com/v1';
+const UPLOAD_ENDPOINT = `${GOOGLE_PHOTOS_API_BASE_URL}/uploads`;
+const MEDIA_ITEMS_CREATE_ENDPOINT = `${GOOGLE_PHOTOS_API_BASE_URL}/mediaItems:batchCreate`;
 
 export class Uploader {
     private dbManager: DatabaseManager;
@@ -69,6 +70,13 @@ export class Uploader {
             throw new Error('Failed to obtain access token.');
         }
         logger.debug(`Obtained access token for item ${item.id}.`);
+        
+        // --- Check for iCloud-only items ---
+        if (item.is_in_icloud) {
+            logger.warn(`Skipping iCloud-only item ${item.id} - File is not fully downloaded locally.`);
+            this.dbManager.updateMediaStatus(item.id, 'skipped_icloud', 'Item is stored in iCloud and not fully available locally');
+            return;
+        }
         
         // --- File Path Handling (Needs refinement in Phase 2) ---
         const filePath = item.local_copy_path || item.original_path;
@@ -272,40 +280,38 @@ export class Uploader {
                         const apiErrorMessage = `API error creating media item: ${result.status.message} (Code: ${result.status.code})`;
                         logger.warn(`[Attempt ${attempt}] ${apiErrorMessage}`);
                         
-                        // Specific check for invalid upload token
+                        // Specific check for invalid upload token - indicates bytes need re-uploading
+                        // Let's bail here and let the outer loop handle re-uploading the bytes.
+                        // A more sophisticated retry could trigger re-upload directly.
                         if (result.status.message.includes('Invalid upload token') || result.status.message.includes('Expired upload token')) {
                              logger.error('Upload token invalid or expired. Bailing media item creation.');
-                             // Return success: false to signal failure to the calling function (uploadMediaItem)
-                             return { success: false }; 
+                             // Bail, but throw a specific error? Or just let the main handler deal with {success: false}?
+                             // For now, return false, the calling function needs to handle this.
+                             // bail(new Error('Invalid upload token')); // Bail might prevent returning {success: false}
+                              return { success: false }; // Signal failure to uploadMediaItem
                         }
                         
-                        // Check for potentially retriable server-side API errors
+                        // Check if it's a potentially retriable server-side issue within the API result
+                        // Assuming codes similar to HTTP might be used, or check specific API docs
                          if (result.status.code === 13 /* Internal */ || result.status.code === 14 /* Unavailable */ || result.status.code === 8 /* Resource exhausted / Quota */) {
                             logger.warn(`Potentially retriable API error ${result.status.code}. Will retry.`);
-                            throw new Error(apiErrorMessage); // Throw to trigger retry by async-retry
+                            throw new Error(apiErrorMessage); // Throw to trigger retry
                         } else {
                             // Other API errors likely non-retriable
                             logger.error(`Non-retriable API error ${result.status.code}. Bailing.`);
-                            bail(new Error(apiErrorMessage)); // Use bail to stop async-retry
-                            return { success: false }; // Return failure
+                            bail(new Error(apiErrorMessage));
+                            return { success: false };
                         }
                     }
                     
-                    // Success case: API status code is 0 (OK)
+                    // Success case
                     const mediaItemId = result.mediaItem?.id;
-                    if (!mediaItemId) {
-                        // This case is unlikely if status.code is 0, but good to handle
-                         const errorMessage = `Media item ID missing in successful response. Token: ${uploadToken}`;
-                         logger.error(errorMessage, { responseData: response.data });
-                         bail(new Error(errorMessage)); // Bail as it's unexpected
-                         return { success: false };
-                    }
                     logger.info(`Successfully created media item. Google Photos ID: ${mediaItemId}`);
                     return { success: true, mediaItemId: mediaItemId };
 
                 } else {
-                     // Unexpected successful HTTP status but invalid data structure
-                     const errorMessage = `Create media item response invalid structure or empty results. Status: ${response.status}. Data: ${JSON.stringify(response.data)}`;
+                     // Unexpected successful HTTP status but invalid data structure?
+                     const errorMessage = `Create media item response invalid. Status: ${response.status}. Data: ${JSON.stringify(response.data)}`;
                      logger.error(errorMessage);
                      bail(new Error(errorMessage)); // Non-retriable
                      return { success: false };
@@ -314,47 +320,40 @@ export class Uploader {
                  let errorMessage = 'Failed during create media item attempt.';
                  if (axios.isAxiosError(error)) {
                     const status = error.response?.status;
-                    // Construct detailed error message from Axios error
-                    errorMessage = `Axios error during create media item: ${error.message}. Status: ${status}. Data: ${JSON.stringify(error.response?.data)}`;
+                    errorMessage = `Axios error: ${error.message}. Status: ${status}. Data: ${JSON.stringify(error.response?.data)}`;
                     logger.warn(`[Attempt ${attempt}] ${errorMessage}`);
 
-                    // --- HTTP Status Based Retry/Bail Logic --- 
                     if (status) {
                         if (status === 401) {
                             logger.error('Received 401 Unauthorized. Bailing create media item attempt.');
                             bail(new Error('Unauthorized (401) during media item creation'));
                         } else if (status === 429) {
                              logger.warn('Received 429 Too Many Requests. Will retry after backoff.');
-                            throw error; // Throw to trigger retry
+                            throw error;
                         } else if (status >= 500 && status < 600) {
                              logger.warn(`Received server error ${status}. Will retry.`);
-                            throw error; // Throw to trigger retry
+                            throw error;
                         } else {
-                            // Other client errors (4xx excluding 401, 429) are non-retriable
                              logger.error(`Received non-retriable client error ${status}. Bailing.`);
                             bail(new Error(`Non-retriable API error ${status} during media item creation`));
                         }
                      } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-                         // Network/Timeout errors are retriable
                          logger.warn(`Network timeout during media item creation. Will retry.`);
                          throw error; // Throw to trigger retry
                     } else {
-                         // Other unknown Axios errors (no status, no specific code) - retry cautiously
-                         logger.warn(`Unknown axios error without status during creation. Will retry. Code: ${error.code}, Message: ${error.message}`);
+                         logger.warn(`Unknown axios error without status. Will retry. Code: ${error.code}, Message: ${error.message}`);
                          throw error; 
                     }
                  } else {
-                     // Non-Axios error (e.g., programming error before request)
                      errorMessage = `Non-axios error during media item creation: ${error.message}`;
                      logger.error(errorMessage, { error });
-                     bail(new Error(errorMessage)); // Bail on non-axios errors
+                     bail(new Error(errorMessage)); 
                  }
-                 // If bail was called, async-retry stops. If throw was called, it retries.
-                 // If retries are exhausted, the error thrown here will be the final error caught by the .catch() below.
-                 // We need to return a failure object if bail was called.
-                 // Check if bail was used by checking if the error has a special property async-retry adds? Or rely on catch.
-                 // Safest is to let the .catch handle the final state after retries/bail.
-                 throw error; // Re-throw caught error to potentially trigger retry by async-retry
+                 // If we bailed or exhausted retries, we need to ensure a failure object is returned
+                 // Throwing within the catch block triggers a retry by async-retry
+                 // If retry limit is reached, async-retry throws the last error caught
+                 // We need to catch that final error outside the retry block
+                 throw error; // Re-throw caught error to potentially trigger retry
             }
         }, {
             retries: MAX_RETRIES,
@@ -366,8 +365,8 @@ export class Uploader {
                 logger.warn(`Retrying media item creation for token ${uploadToken} (attempt ${attempt}/${MAX_RETRIES}) due to error: ${errorMessage}`);
             }
         }).catch(finalError => {
-            // This .catch block executes ONLY if all retries fail OR if bail() was called.
-            logger.error(`Media item creation failed permanently for token ${uploadToken} after ${MAX_RETRIES} retries or bail: ${finalError.message}`, { finalError });
+            // Catch error after all retries have failed
+            logger.error(`Media item creation failed permanently for token ${uploadToken} after ${MAX_RETRIES} retries: ${finalError.message}`, { finalError });
             return { success: false }; // Return failure object
         });
     }

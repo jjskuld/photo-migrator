@@ -4,7 +4,7 @@ import fs from 'fs';
 import { logger } from './logger';
 
 export type MediaType = 'photo' | 'video';
-export type MediaStatus = 'pending' | 'exported' | 'uploaded' | 'failed' | 'skipped';
+export type MediaStatus = 'pending' | 'exported' | 'uploaded' | 'failed' | 'skipped' | 'skipped_icloud';
 
 export interface MediaItem {
   id: string;
@@ -27,6 +27,7 @@ export interface MediaItem {
   last_attempt_at?: string;
   google_photos_id?: string;
   error_message?: string;
+  is_in_icloud?: boolean; // New property to indicate if media is stored primarily in iCloud
 }
 
 export interface Batch {
@@ -104,11 +105,12 @@ export class DatabaseManager {
           duration_seconds REAL,
           frame_rate REAL,
           codec TEXT,
-          status TEXT CHECK(status IN ('pending', 'exported', 'uploaded', 'failed', 'skipped')),
+          status TEXT CHECK(status IN ('pending', 'exported', 'uploaded', 'failed', 'skipped', 'skipped_icloud')),
           retry_count INTEGER DEFAULT 0,
           last_attempt_at TEXT,
           google_photos_id TEXT,
-          error_message TEXT
+          error_message TEXT,
+          is_in_icloud INTEGER DEFAULT 0
         );
       `);
 
@@ -164,8 +166,8 @@ export class DatabaseManager {
         INSERT INTO media_items 
         (id, media_type, mime_type, original_path, local_copy_path, original_name, size_bytes, creation_date, 
          sha256_hash, visual_hash, pixel_size, duration_seconds, frame_rate, codec, status, 
-         retry_count, last_attempt_at, google_photos_id, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+         retry_count, last_attempt_at, google_photos_id, error_message, is_in_icloud)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -186,7 +188,8 @@ export class DatabaseManager {
         media.status || 'pending',
         media.last_attempt_at || null,
         media.google_photos_id || null,
-        media.error_message || null
+        media.error_message || null,
+        media.is_in_icloud === true ? 1 : 0
       );
       
       logger.debug('Added media item to database', { id: media.id, type: media.media_type, mimeType: media.mime_type });
@@ -215,8 +218,8 @@ export class DatabaseManager {
           INSERT INTO media_items 
           (id, media_type, mime_type, original_path, local_copy_path, original_name, size_bytes, creation_date, 
            sha256_hash, visual_hash, pixel_size, duration_seconds, frame_rate, codec, status, 
-           retry_count, last_attempt_at, google_photos_id, error_message)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+           retry_count, last_attempt_at, google_photos_id, error_message, is_in_icloud)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         `);
         
         for (const media of mediaList) {
@@ -238,7 +241,8 @@ export class DatabaseManager {
             media.status || 'pending',
             media.last_attempt_at || null,
             media.google_photos_id || null,
-            media.error_message || null
+            media.error_message || null,
+            media.is_in_icloud === true ? 1 : 0
           );
           ids.push(media.id);
         }

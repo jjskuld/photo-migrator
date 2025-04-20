@@ -62,6 +62,9 @@ This document outlines the development tasks required to build the uploader appl
   - *Methods:* `initialize()`, `addMedia()`, `updateMediaStatus()`, `getPendingMedia()`, `getMediaByHash()`, `getTotalCount()`, `getCompletedCount()`, `getMediaCountByType()`.
 - [x] ✅ **Task 1.2.3:** Write unit tests for `DatabaseManager`.
   - *Coverage:* Test all CRUD operations and query logic.
+- [x] ✅ **Task 1.2.4:** Implement database migrations system.
+  - *Detail:* Create a `migrations` table and implement `applyMigrations` in `src/utils/migrations.ts` to apply idempotent schema changes and track applied migrations.
+  - *Tests:* Add unit tests in `src/utils/migrations.test.ts` covering table creation, column additions, and migration skipping logic.
 
 ### 1.3 Authentication (Google OAuth2)
 - [x] ✅ **Task 1.3.1:** Implement `AuthManager` module.
@@ -94,17 +97,17 @@ This document outlines the development tasks required to build the uploader appl
   - *Note:* Requires the full Xcode command-line tools path to be active (`sudo xcode-select -s /Applications/Xcode.app/...`) for `swift test` to find `XCTest`.
 
 ### 1.5 Uploader Engine (Google Photos API)
-- [x] ✅ **Task 1.5.1:** Implement `Uploader` module.
-- [x] ✅ **Task 1.5.2:** Implement function to upload bytes (Step 1 in `API.md`).
+- [x] **Task 1.5.1:** Implement `Uploader` module.
+- [x] **Task 1.5.2:** Implement function to upload bytes (Step 1 in `API.md`).
   - *Input:* File path, access token.
   - *Output:* Upload token.
   - *Error Handling:* Implement basic retry logic for 5xx errors. Handle 401 by signaling `AuthManager` to refresh.
   - *Video Support:* Implement longer timeouts and larger chunk sizes for videos.
-- [x] ✅ **Task 1.5.3:** Implement function to create media item (Step 2 in `API.md`).
+- [x] **Task 1.5.3:** Implement function to create media item (Step 2 in `API.md`).
   - *Input:* Upload token, access token, media type, (optional) description.
   - *Output:* Success status, new media item ID (if successful).
   - *Error Handling:* Handle specific errors mentioned in `API.md`.
-- [x] ✅ **Task 1.5.4:** Implement core upload workflow:
+- [x] **Task 1.5.4:** Implement core upload workflow:
   - Fetch a pending media item from `DatabaseManager`.
   - Get a valid access token from `AuthManager`.
   - If file is in iCloud (`local_copy_path` is null), *initially skip* (downloading handled later).
@@ -113,21 +116,21 @@ This document outlines the development tasks required to build the uploader appl
   - Create media item.
   - Update media status in `DatabaseManager` ('completed' or 'failed' with error message).
   - Handle media type-specific requirements (longer timeouts for videos).
-- [x] ✅ **Task 1.5.5:** Add basic unit tests for `Uploader` (mocking API calls and `DatabaseManager`).
+- [x] **Task 1.5.5:** Add basic unit tests for `Uploader` (mocking API calls and `DatabaseManager`).
 
 ### 1.6 Basic CLI Orchestration
-- [✅] **Task 1.6.1:** Create main CLI entry point (`src/main.ts`).
-- [✅] **Task 1.6.2:** Add command-line arguments parsing (e.g., using `yargs`).
-    - *Commands:* `scan`, `upload`, `login`, `status`.
-    - *Filters:* Add `--type` option to filter by media type (photos, videos, or all).
-- [✅] **Task 1.6.3:** Implement `login` command (triggers `AuthManager`).
-- [✅] **Task 1.6.4:** Implement `scan` command (triggers `MediaScanner`).
-- [✅] **Task 1.6.5:** Implement `upload` command (loops through pending media items, triggers `Uploader`).
-    - *Detail:* Add basic console logging for progress (e.g., "Uploading file X of Y...").
-    - *Media Types:* Add support for filtering by media type (`--photos-only`, `--videos-only`).
-- [✅] **Task 1.6.6:** Implement `status` command (queries `DatabaseManager` for counts).
-    - *Detail:* Report counts by media type (photos vs videos).
-- [✅] **Task 1.6.7:** Add `npm` scripts for running commands (e.g., `npm run scan`, `npm run upload`).
+- [x] **Task 1.6.1:** Create main CLI entry point (`src/main.ts`).
+- [ ] **Task 1.6.2:** Add command-line arguments parsing (e.g., using `yargs`).
+  - *Commands:* `scan`, `upload`, `login`, `status`.
+  - *Filters:* Add `--type` option to filter by media type (photos, videos, or all).
+- [ ] **Task 1.6.3:** Implement `login` command (triggers `AuthManager`).
+- [ ] **Task 1.6.4:** Implement `scan` command (triggers `MediaScanner`).
+- [ ] **Task 1.6.5:** Implement `upload` command (loops through pending media items, triggers `Uploader`).
+  - *Detail:* Add basic console logging for progress (e.g., "Uploading file X of Y...").
+  - *Media Types:* Add support for filtering by media type (`--photos-only`, `--videos-only`).
+- [ ] **Task 1.6.6:** Implement `status` command (queries `DatabaseManager` for counts).
+  - *Detail:* Report counts by media type (photos vs videos).
+- [ ] **Task 1.6.7:** Add `npm` scripts for running commands (e.g., `npm run scan`, `npm run upload`).
 
 ---
 

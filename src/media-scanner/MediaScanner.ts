@@ -177,6 +177,7 @@ export class MediaScanner {
           last_attempt_at: undefined,
           google_photos_id: undefined,
           error_message: undefined,
+          is_in_icloud: item.isInCloud, // Add the isInCloud property from Swift
         };
         itemsToAdd.push(mediaData);
 

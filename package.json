@@ -16,8 +16,6 @@
     "upload": "node dist/main.js upload",
     "login": "node dist/main.js login",
     "status": "node dist/main.js status",
-    "upload:photos": "node dist/main.js upload --photos-only",
-    "upload:videos": "node dist/main.js upload --videos-only",
     "build:swift": "cd swift/MediaScannerMac && swift build -c release && mkdir -p ../../bin && cp ../.build/arm64-apple-macosx/release/MediaScannerMac ../../bin/",
     "test:swift": "cd swift/MediaScannerMac && swift test"
   },
