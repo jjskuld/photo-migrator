@@ -87,8 +87,11 @@ This document outlines the development tasks required to build the uploader appl
 - [ ] **Task 1.4.3:** Implement Node.js module (`MediaScanner`) to run the Swift tool as a child process.
   - *Functionality:* Spawn the Swift executable, capture stdout, parse JSON output line by line.
   - *Integration:* Add scanned media to the SQLite database via `DatabaseManager`.
-- [ ] **Task 1.4.4:** Add basic integration tests for the Node.js `MediaScanner` (mocking the Swift executable's output).
-- [ ] **Task 1.4.5:** Document how to build and where to place the Swift executable for the Node.js app to find it.
+- [x] ✅ **Task 1.4.4:** Add basic integration tests for the Node.js `MediaScanner` (mocking the Swift executable's output).
+- [x] ✅ **Task 1.4.5:** Document how to build and where to place the Swift executable for the Node.js app to find it.
+- [x] ✅ **Task 1.4.6:** Add basic unit tests for the Swift `MediaScannerMac` code.
+  - *Detail:* Set up `XCTest` target. Add placeholder tests confirming the test setup works. Focus on testing helper functions or data structures if refactored later.
+  - *Note:* Requires the full Xcode command-line tools path to be active (`sudo xcode-select -s /Applications/Xcode.app/...`) for `swift test` to find `XCTest`.
 
 ### 1.5 Uploader Engine (Google Photos API)
 - [ ] **Task 1.5.1:** Implement `Uploader` module.

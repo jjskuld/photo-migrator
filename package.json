@@ -15,7 +15,9 @@
     "scan": "node dist/main.js scan",
     "upload": "node dist/main.js upload",
     "login": "node dist/main.js login",
-    "status": "node dist/main.js status"
+    "status": "node dist/main.js status",
+    "build:swift": "cd swift/MediaScannerMac && swift build -c release && mkdir -p ../../bin && cp ../.build/arm64-apple-macosx/release/MediaScannerMac ../../bin/",
+    "test:swift": "cd swift/MediaScannerMac && swift test"
   },
   "keywords": [
     "photos",
