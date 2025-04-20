@@ -78,13 +78,13 @@ This document outlines the development tasks required to build the uploader appl
   - *Detail:* Mock `google-auth-library` and Node.js `fs` module. Test initialization (config loading), auth URL generation, code handling, token loading, access token retrieval (including refresh), and token clearing.
 
 ### 1.4 Media Scanner (macOS - Swift Bridge)
-- [ ] **Task 1.4.1:** Create a Swift command-line tool project (`MediaScannerMac`).
+- [x] ✅ **Task 1.4.1:** Create a Swift command-line tool project (`MediaScannerMac`).
   - *Detail:* Use Swift Package Manager.
-- [ ] **Task 1.4.2:** Implement Swift code to access `Photos.framework`.
+- [x] ✅ **Task 1.4.2:** Implement Swift code to access `Photos.framework`.
   - *Functionality:* Iterate through all photos/videos in the system library.
   - *Output:* For each item, print JSON to stdout containing: `originalPath` (if available locally), `original_name`, `uti` (file type), `creationDate`, `modificationDate`, `sizeBytes`, `isIniCloud`, `mediaType` ('photo' or 'video'), `durationSeconds`, `codec`.
   - *Error Handling:* Handle permissions errors gracefully.
-- [ ] **Task 1.4.3:** Implement Node.js module (`MediaScanner`) to run the Swift tool as a child process.
+- [x] ✅ **Task 1.4.3:** Implement Node.js module (`MediaScanner`) to run the Swift tool as a child process.
   - *Functionality:* Spawn the Swift executable, capture stdout, parse JSON output line by line.
   - *Integration:* Add scanned media to the SQLite database via `DatabaseManager`.
 - [x] ✅ **Task 1.4.4:** Add basic integration tests for the Node.js `MediaScanner` (mocking the Swift executable's output).
