@@ -2,7 +2,7 @@
 
 ## Project Name
 **Photo Migrator**
-*(Cross-Platform Apple Photos to Google Photos Uploader)*
+*(Cross-Platform Apple Photos to Google Photos Uploader for Photos and Videos)*
 
 ## 1. Objective
 Define the technical architecture, data structures, component behavior, module interfaces, error handling, and flows to implement the uploader application described in the PRD.
@@ -40,16 +40,23 @@ The app is a desktop application built using Electron, React, and Node.js that u
 ```sql
 CREATE TABLE media_items (
   id TEXT PRIMARY KEY,
-  file_path TEXT NOT NULL,
+  original_path TEXT NOT NULL,
+  local_copy_path TEXT,
   original_name TEXT NOT NULL,
-  size INTEGER,
-  sha256 TEXT,
+  size_bytes INTEGER,
+  sha256_hash TEXT,
   visual_hash TEXT,
   pixel_size TEXT,
-  created_at TEXT,
+  creation_date TEXT,
+  media_type TEXT CHECK(media_type IN ('photo', 'video')),
+  duration_seconds INTEGER,
+  mime_type TEXT,
+  codec TEXT,
   status TEXT CHECK(status IN ('pending', 'exported', 'uploaded', 'failed', 'skipped')),
   retry_count INTEGER DEFAULT 0,
-  last_attempt_at TEXT
+  last_attempt_at TEXT,
+  google_photos_id TEXT,
+  error_message TEXT
 );
 
 CREATE TABLE batches (
@@ -57,7 +64,9 @@ CREATE TABLE batches (
   created_at TEXT,
   status TEXT CHECK(status IN ('planned', 'uploading', 'complete', 'failed')),
   total_size INTEGER,
-  files_count INTEGER
+  files_count INTEGER,
+  photo_count INTEGER,
+  video_count INTEGER
 );
 
 CREATE TABLE settings (
@@ -75,7 +84,12 @@ CREATE TABLE settings (
   "wifiOnly": true,
   "autoResume": true,
   "logLevel": "info",
-  "telemetryOptIn": false
+  "telemetryOptIn": false,
+  "videoUploadSettings": {
+    "enabled": true,
+    "maxSizeGB": 2,
+    "priorityLevel": "normal"
+  }
 }
 ```
 
@@ -87,7 +101,7 @@ CREATE TABLE settings (
 **Responsibility:** Discover all photos/videos, extract metadata, and queue for processing.
 
 **macOS:**
-- Swift executable runs: `photos-exporter --list` to return JSON list of photo metadata.
+- Swift executable runs: `photos-exporter --list` to return JSON list of photo/video metadata.
 - Waits for iCloud media to download using polling with timeout (configurable, default 10 min)
 - Shows "Waiting for iCloud" state in UI with countdown
 
@@ -96,9 +110,17 @@ CREATE TABLE settings (
 
 **Metadata Extracted:**
 - Filename, size, original creation date, format
+- Media type (photo/video)
+- For videos: duration, resolution, codec/container format
 - SHA256 of binary file (including metadata)
 - Visual hash (using pHash or aHash)
 - Pixel dimensions
+- MIME type
+
+**Video-Specific Considerations:**
+- Detect video formats compatible with Google Photos
+- Track video duration for progress estimation
+- Flag large videos that may require special handling
 
 ---
 
@@ -109,6 +131,8 @@ CREATE TABLE settings (
 - Ensure minimum 5GB free buffer always
 - Estimate per-batch size: max = min(`maxDiskUsageGB`, `availableSpace - 5GB`)
 - Skip any individual file larger than available staging space + 500MB
+- Optionally segregate photos and videos into separate batches
+- Prioritize photos over videos when space is limited (configurable)
 
 **Outputs:**
 - New batch record in DB
@@ -123,18 +147,25 @@ CREATE TABLE settings (
 1. Initiate upload URL using Google Photos API
 2. Stream file in chunks with retry logic (exponential backoff)
 3. On success, call `mediaItems:batchCreate`
-4. Mark file as uploaded
+4. Mark media item as uploaded
 
 **Handles:**
 - Token expiration and refresh
 - Resume interrupted uploads
 - Skip files after N retries
 - Detect duplicates via hybrid fingerprinting
+- Adjust timeout and chunk size for videos
 
 **Duplicate Detection Strategy:**
-- Primary: Exact `sha256` match
-- Secondary: If `sha256` differs, fallback to comparing `visual_hash` + `pixel_size`
+- Primary: Exact `sha256_hash` match
+- Secondary: If `sha256_hash` differs, fallback to comparing `visual_hash` + `pixel_size`
 - Result: Warn or skip depending on config if visual match detected
+
+**Video-Specific Considerations:**
+- Use larger chunk sizes for videos (e.g., 5MB vs 1MB for photos)
+- Implement longer timeouts for video uploads
+- Provide video-specific progress calculation based on duration/size
+- Handle video processing time on Google's side after upload
 
 ---
 
@@ -142,11 +173,12 @@ CREATE TABLE settings (
 **Responsibility:** Persistent state of all files, batches, and retries.
 
 **Methods:**
-- `getPendingMedia()`
-- `markUploaded(id)`
-- `incrementRetry(id)`
-- `getFailedMedia(limit)`
-- `getFileStatus(id)`
+- `getPendingMedia(type?, limit?)`
+- `updateMediaStatus(id, status, errorMessage)`
+- `incrementRetryCount(id)`
+- `getMediaByStatus(status, type?, limit?)`
+- `getMediaById(id)`
+- `getMediaCountByType(type)`
 
 ---
 
@@ -157,6 +189,12 @@ CREATE TABLE settings (
 - Warn and pause export if disk free < 10% or < 5GB
 - Skip large files that won't fit + buffer
 - Clean up staging folder after each batch
+- Prioritize smaller files when disk space is constrained
+
+**Video-Specific Considerations:**
+- Implement special handling for videos exceeding specified size thresholds
+- Track remaining space available for videos specifically
+- Provide warnings when space is insufficient for video export
 
 ---
 
@@ -170,6 +208,7 @@ CREATE TABLE settings (
 **Triggers:**
 - Pause on offline or non-WiFi if WiFi-only enabled
 - Auto-resume on reconnect if autoResume = true
+- Optional: Allow separate network policies for photos vs. videos
 
 ---
 
@@ -182,6 +221,8 @@ CREATE TABLE settings (
 - Upload speed: 1–100 Mbps
 - Max disk usage: 10–500 GB
 - Retry limit: 1–20
+- Video upload toggle: enabled/disabled
+- Video size limit: 1MB–10GB
 
 ---
 
@@ -191,7 +232,7 @@ CREATE TABLE settings (
 <App>
  ├── <Header />
  ├── <ProgressDashboard />
- │   ├── <FileProgress />
+ │   ├── <MediaProgress />
  │   └── <GlobalProgress />
  ├── <SettingsPanel />
  ├── <LogViewer />
@@ -203,6 +244,7 @@ CREATE TABLE settings (
 - Upload active vs paused vs completed
 - Network: online/offline, WiFi-only status
 - iCloud waiting state with countdown
+- Media type indicators (photo/video)
 
 ---
 
@@ -232,8 +274,15 @@ CREATE TABLE settings (
 - `photos-exporter --list`
 - `photos-exporter --export id1 id2 ...`
 - `photos-exporter --wait-for icloud-path`
+- `photos-exporter --media-info id1 id2 ...` (for detailed video metadata)
 
 **Communicates via:** stdout JSON
+
+**Video-Specific Capabilities:**
+- Extract video codec information
+- Determine if video requires transcoding
+- Report video playability status
+- Extract thumbnail/poster frame
 
 ---
 
@@ -279,6 +328,9 @@ flowchart TD
 - Pause triggered by user, offline, low disk
 - Resume triggered by user, reconnect, free disk
 
+### 6.4 Video-Specific Flow
+- Determine video compatibility → check size → prepare for upload → handle extended upload time → verify playback
+
 ---
 
 ## 7. Error Handling
@@ -292,6 +344,9 @@ flowchart TD
 | Token expired | Refresh token automatically |
 | iCloud media unavailable | Retry export for up to 10 minutes |
 | Visual duplicate | Warn or auto-skip based on config |
+| Unsupported video format | Warn user, mark as skipped, log format details |
+| Video exceeds size limit | Offer options to skip or reduce quality |
+| Video processing error (Google-side) | Report detailed error to user |
 
 ---
 
@@ -323,6 +378,8 @@ flowchart TD
   - Speed/bandwidth cap enforcement
   - OAuth token expiration
   - Visual duplicate match vs false positive
+  - Video upload of various formats and sizes
+  - Video playback verification
 
 ---
 
@@ -332,6 +389,8 @@ flowchart TD
 - Selective album upload
 - Prioritization (by face/tag/date)
 - Localization and accessibility (a11y)
+- Video transcoding options
+- Advanced video metadata preservation
 
 ---
 
@@ -342,4 +401,7 @@ flowchart TD
 - **Tray App**: Electron UI element in the system tray
 - **Visual Hash**: A perceptual fingerprint based on image appearance (e.g. pHash)
 - **SHA256**: A cryptographic hash of the binary file content including metadata
+- **Media Item**: A photo or video to be uploaded
+- **Codec**: Video encoding format (e.g., H.264, HEVC)
+- **Container**: Media file format (e.g., MP4, MOV)
 

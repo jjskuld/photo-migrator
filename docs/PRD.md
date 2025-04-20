@@ -2,10 +2,10 @@
 
 ## Project Name:
 **Photo Migrator**
-*(Cross-Platform Apple Photos to Google Photos Uploader)*
+*(Cross-Platform Apple Photos to Google Photos Uploader for Photos and Videos)*
 
 ## 1. Purpose
-Create a reliable, efficient, and user-friendly desktop application that uploads a user's Apple Photos library to Google Photos while:
+Create a reliable, efficient, and user-friendly desktop application that uploads a user's Apple Photos library (including both photos and videos) to Google Photos while:
 - Preserving original metadata and filenames
 - Managing bandwidth and disk usage
 - Supporting background and offline-resilient operation
@@ -17,28 +17,30 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 - Uploading from mobile devices
 - Synchronizing between devices
 - Uploading to destinations other than Google Photos
+- Converting or transcoding videos
 
 ---
 
 ## 3. Features
 
 ### 3.1 File Discovery and Metadata Extraction
-**Description:** Identify all eligible media files in the Apple Photos library or designated iCloud download folder.
+**Description:** Identify all eligible media files (photos and videos) in the Apple Photos library or designated iCloud download folder.
 
 **Subtasks:**
 - macOS: Use Swift + AppleScript to access Photos.framework, resolve file paths, detect iCloud-only items
 - Windows: Scan iCloud synced downloads folder
-- Extract metadata: creation date, original filename, file size
+- Extract metadata: creation date, original filename, file size, media type, video duration (for videos)
 - Persist scan results in local DB
 
 **Acceptance Criteria:**
-- 100% of media files with accessible paths and metadata are included in the job list
+- 100% of media files (photos and videos) with accessible paths and metadata are included in the job list
 - iCloud-only files are queued for download before upload
+- Video metadata (duration, resolution, codec) is properly extracted when available
 
 ---
 
 ### 3.2 Upload Engine (Google Photos API)
-**Description:** Uploads media in batches using resumable API with error handling, metadata preservation, and duplicate detection.
+**Description:** Uploads media (photos and videos) in batches using resumable API with error handling, metadata preservation, and duplicate detection.
 
 **Subtasks:**
 - OAuth2 login (with token refresh)
@@ -46,11 +48,13 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 - Retry failed uploads (configurable retry limit)
 - Deduplication based on hash + metadata
 - Preserve creation timestamp (if allowed by API)
+- Handle video-specific upload requirements (longer timeouts, larger chunk sizes)
 
 **Acceptance Criteria:**
 - No duplicates in destination Google Photos account
-- All uploads resume on crash or restart
-- Metadata (timestamp, file type) visible in uploaded photo on Google Photos
+- All uploads (photos and videos) resume on crash or restart
+- Metadata (timestamp, file type) visible in uploaded media on Google Photos
+- Videos play correctly after upload with no quality loss
 
 ---
 
@@ -61,11 +65,13 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 - Monitor free disk space dynamically
 - Calculate safe usage limit (e.g., 80% of available space or user-defined cap)
 - Select media for each batch based on size, avoiding overcommit
+- Prioritize smaller files when disk space is limited
 - Clean up temp files after each batch
 
 **Acceptance Criteria:**
 - App never consumes more than configured disk space
-- App gracefully skips large files that exceed available space
+- App gracefully skips large files (especially videos) that exceed available space
+- Videos are handled efficiently without unnecessary copies when possible
 
 ---
 
@@ -73,9 +79,10 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 **Description:** Modern desktop UI showing upload progress, controls, logs, and configuration.
 
 **Subtasks:**
-- Total file count and completed count
+- Total file count and completed count (for both photos and videos)
 - Per-file and overall progress bars
-- Estimated time remaining
+- Media type indicators (photo/video) in progress view
+- Estimated time remaining (adjusted for videos)
 - Logs of errors, retries, and skipped files
 - UI built with React + Tailwind inside Electron
 - System tray support with background status
@@ -83,6 +90,7 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 **Acceptance Criteria:**
 - UI updates in real time with clear feedback
 - Users can pause, resume, or cancel uploads
+- Video uploads show appropriate progress indicators (may take longer than photos)
 
 ---
 
@@ -94,10 +102,12 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 - Restrict uploads to WiFi (configurable)
 - Set upload speed cap (e.g., 5 Mbps)
 - Pause/resume on network loss and reconnect
+- Optional video-only upload restrictions (e.g., only upload videos on certain networks)
 
 **Acceptance Criteria:**
 - Upload pauses automatically when offline or on metered connection
 - Upload speed never exceeds user-defined cap
+- Users can configure different policies for photos vs. videos
 
 ---
 
@@ -108,10 +118,12 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 - Persist upload state to SQLite
 - Detect and auto-resume incomplete uploads on app launch
 - Auto-start on system boot (opt-in)
+- Maintain video upload state for partially uploaded files
 
 **Acceptance Criteria:**
 - Uploads resume within 10 seconds of app restart or reconnect
 - State is preserved across reboots
+- Videos can resume upload from the last successful chunk
 
 ---
 
@@ -124,10 +136,13 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 - Upload speed limit
 - WiFi-only mode
 - OAuth re-authentication
+- Media type filters (photos only, videos only, or both)
+- Video quality options (if applicable)
 
 **Acceptance Criteria:**
 - Settings persist across restarts
 - All settings validated for acceptable input range
+- Media type filtering works correctly
 
 ---
 
@@ -178,7 +193,7 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 
 | Phase | Scope |
 |-------|--------|
-| P1 | CLI-based scanner + uploader with config file |
+| P1 | CLI-based scanner + uploader with config file (photos & videos) |
 | P2 | Smart batching + SQLite resume logic |
 | P3 | Full GUI with pause/resume, settings panel |
 | P4 | Background mode + tray icon + notifications |
@@ -190,17 +205,18 @@ Create a reliable, efficient, and user-friendly desktop application that uploads
 | Risk | Mitigation |
 |------|-------------|
 | iCloud media unavailable | Trigger downloads, warn user if space insufficient |
+| Large video files exceed disk space | Implement smarter batch planning for videos |
 | OAuth token expires | Refresh tokens and re-authenticate if needed |
 | API quota limits | Track usage, retry later if quota exceeded |
 | Large file upload fails | Use resumable upload + retries |
+| Video codec compatibility | Document supported video formats |
 
 
 ## 8. Future Considerations
 - Multiple Google account support
 - Upload to albums
-- Upload prioritization by date or face tags
-- Localization (i18n)
-- Accessibility (a11y)
+- Video-specific optimizations (transcoding options)
+- Media organization by type
 
 
 ## 9. Glossary

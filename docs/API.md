@@ -1,7 +1,7 @@
 # Google Photos API Integration Specification
 
 ## Purpose
-This document outlines how the uploader application integrates with the Google Photos API, including endpoints, authentication, error handling, and quota management.
+This document outlines how the uploader application integrates with the Google Photos API for both photos and videos, including endpoints, authentication, error handling, and quota management.
 
 ---
 
@@ -34,8 +34,20 @@ This document outlines how the uploader application integrates with the Google P
 - `Content-type: application/octet-stream`
 - `X-Goog-Upload-File-Name: <filename>`
 - `X-Goog-Upload-Protocol: raw`
+- For large video files: `X-Goog-Upload-Content-Length: <file_size_bytes>`
 
 **Response:** Upload Token (string)
+
+**Video-specific considerations:**
+- For videos over 150MB, use the resumable upload protocol with chunks
+- Set additional headers:
+  - `X-Goog-Upload-Command: start`
+  - `X-Goog-Upload-Content-Length: <total_size>`
+- For subsequent chunks:
+  - `X-Goog-Upload-Command: upload`
+  - `X-Goog-Upload-Offset: <current_offset>`
+- For final chunk:
+  - `X-Goog-Upload-Command: upload, finalize`
 
 ### Step 2: Create Media Item
 **Endpoint:** `https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate`
@@ -66,6 +78,7 @@ This document outlines how the uploader application integrates with the Google P
 - 401 Unauthorized → Refresh token and retry
 - 429 Too Many Requests → Backoff + retry
 - 5xx Errors → Retry with exponential backoff (max 5 times)
+- For videos: handle connection timeouts with proper resume functionality
 
 ### Create Media Item Failures (Step 2)
 - Status codes inside response array
@@ -97,9 +110,15 @@ Google Photos does not reject duplicates automatically. Our app uses client-side
 ---
 
 ## 6. Media Types and Restrictions
-- Supported: JPEG, PNG, HEIC, MP4, MOV, etc.
-- Max file size: 200MB for images, 10GB for videos
+- Supported images: JPEG, PNG, HEIC, WebP, GIF
+- Supported videos: MP4, MOV, MPEG, MKV, AVI, WebM
+- Max file size: 200MB for images, 10GB for videos (with chunked upload)
 - Upload fails for unsupported formats — app logs and skips these
+- Video codecs supported: H.264, H.265, VP8, VP9
+- Video considerations:
+  - Check codec compatibility before upload attempt
+  - Calculate and track upload time estimates for large videos
+  - Handle uploads that may take hours for very large files
 
 ---
 
@@ -107,6 +126,7 @@ Google Photos does not reject duplicates automatically. Our app uses client-side
 - All tokens stored using system secure storage
 - Logs do not include tokens, user IDs, or personal filenames
 - App requests minimal API scope
+- For videos, verify file integrity before and after upload using checksums
 
 ---
 
@@ -114,4 +134,8 @@ Google Photos does not reject duplicates automatically. Our app uses client-side
 - Upload to specific albums
 - Support `description` metadata
 - Upload ordering by timestamp
+- Video-specific enhancements:
+  - Transcoding options for incompatible videos
+  - Thumbnail generation for video preview
+  - Custom cover frame selection
 
