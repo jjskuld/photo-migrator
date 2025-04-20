@@ -1,7 +1,8 @@
 # Functional Specification Document (FSD)
 
 ## Project Name
-**Cross-Platform Apple Photos to Google Photos Uploader**
+**Photo Migrator**
+*(Cross-Platform Apple Photos to Google Photos Uploader)*
 
 ## 1. Objective
 Define the technical architecture, data structures, component behavior, module interfaces, error handling, and flows to implement the uploader application described in the PRD.
@@ -9,7 +10,7 @@ Define the technical architecture, data structures, component behavior, module i
 ---
 
 ## 2. System Overview
-The app is a desktop application built using Electron, React, and Node.js that uploads media from Apple Photos (macOS) or iCloud Photos folder (Windows) to Google Photos using Google’s Library API. It handles large datasets, supports resumable uploads, provides user controls, and operates efficiently with limited disk and network resources.
+The app is a desktop application built using Electron, React, and Node.js that uploads media from Apple Photos (macOS) or iCloud Photos folder (Windows) to Google Photos using Google's Library API. It handles large datasets, supports resumable uploads, provides user controls, and operates efficiently with limited disk and network resources.
 
 ---
 

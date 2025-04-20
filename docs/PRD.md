@@ -1,7 +1,8 @@
 # Product Requirements Document (PRD)
 
 ## Project Name:
-**Cross-Platform Apple Photos to Google Photos Uploader**
+**Photo Migrator**
+*(Cross-Platform Apple Photos to Google Photos Uploader)*
 
 ## 1. Purpose
 Create a reliable, efficient, and user-friendly desktop application that uploads a user's Apple Photos library to Google Photos while:

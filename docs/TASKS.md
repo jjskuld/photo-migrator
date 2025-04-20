@@ -1,4 +1,5 @@
-# Project Tasks: Cross-Platform Apple Photos to Google Photos Uploader
+# Project Tasks: Photo Migrator
+*(Cross-Platform Apple Photos to Google Photos Uploader)*
 
 This document outlines the development tasks required to build the uploader application. Tasks are broken down into phases following an agile approach, prioritizing a functional Minimum Viable Product (MVP) first. Each task includes checkboxes for tracking progress.
 

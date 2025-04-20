@@ -1,7 +1,8 @@
 # Testing Strategy Document
 
 ## Project Name
-**Cross-Platform Apple Photos to Google Photos Uploader**
+**Photo Migrator**
+*(Cross-Platform Apple Photos to Google Photos Uploader)*
 
 ## Objective
 Define a comprehensive testing strategy to ensure the application is reliable, secure, performant, and user-friendly. Testing will span unit, integration, E2E, manual QA, and platform-specific behavior.
