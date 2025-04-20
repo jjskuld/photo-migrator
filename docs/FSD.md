@@ -32,6 +32,36 @@ The app is a desktop application built using Electron, React, and Node.js that u
 | `Logger` | Provides structured logging with configurable levels |
 | `Telemetry` | Optional telemetry for diagnostics (opt-in only) |
 
+### 3.2 Security Considerations
+
+#### 3.2.1 OAuth Credential Handling
+Interacting with the Google Photos API requires OAuth 2.0 credentials (`CLIENT_ID` and `CLIENT_SECRET`). Handling the `CLIENT_SECRET` securely in a distributed desktop application is critical.
+
+**Two-Phase Strategy:**
+1.  **Initial Phase (MVP/Development):**
+    *   **Tokens:** Access and Refresh tokens obtained from Google will be stored in a JSON file (`google-tokens.json`) within the application's protected user data directory (e.g., `~/.config/photo-migrator/` on macOS/Linux, `%APPDATA%/photo-migrator/` on Windows).
+    *   **Client Secret:** For simplicity during initial development, the `CLIENT_ID` and `CLIENT_SECRET` **must be provided by the user** in a separate JSON file named `config.json` within the same configuration directory (e.g., `~/.config/photo-migrator/config.json`). This file is **required** for the application to authenticate. **This approach is NOT secure for a widely distributed application** as the secret resides readable on the user's machine.
+      ```json
+      // Example ~/.config/photo-migrator/config.json
+      {
+        "clientId": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+        "clientSecret": "YOUR_CLIENT_SECRET"
+      }
+      ```
+2.  **Final Phase (Production/Distribution):**
+    *   **Client Secret:** A **Backend Proxy Server** will be implemented. The Electron application will only handle the initial user authorization redirect and receive an *authorization code* from Google.
+    *   This code will be sent to the secure backend server.
+    *   The backend server, which securely stores the `CLIENT_SECRET`, will exchange the code and secret for the access/refresh tokens with Google.
+    *   The backend returns only the *tokens* to the Electron application.
+    *   **Rationale:** This ensures the `CLIENT_SECRET` is never exposed on the end-user's machine, adhering to security best practices.
+    *   **Tokens:** The refresh token received from the backend proxy should ideally be stored securely using platform-specific mechanisms like macOS Keychain and Windows Credential Manager (via `keytar`). The access token can be kept in memory.
+    *   **Client ID:** The `CLIENT_ID` is considered public and can remain embedded in the Electron application.
+
+#### 3.2.2 User Data
+*   Media file metadata and upload status are stored locally in an SQLite database within the application's user data directory.
+*   Temporary copies of media files (during export/upload) are stored in a temporary directory and should be cleaned up promptly.
+*   Appropriate file system permissions should be used for stored tokens and the database.
+
 ---
 
 ## 4. Data Models

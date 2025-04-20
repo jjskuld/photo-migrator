@@ -7,6 +7,15 @@ This document outlines the development tasks required to build the uploader appl
 
 ---
 
+## Phase 0: Prerequisites & Setup
+
+- [ ] **Task 0.1:** Set up Google Cloud Project and OAuth Credentials.
+  - *Detail:* Create a project in Google Cloud Console, enable the "Photos Library API", configure the OAuth consent screen (Desktop app type), and create OAuth 2.0 Client ID credentials.
+  - *Outcome:* Obtain the `CLIENT_ID` and `CLIENT_SECRET` required for `config.json` (see Task 1.3.3 & FSD 3.2.1).
+  - *Resource:* [Google Cloud Console](https://console.cloud.google.com/)
+
+---
+
 ## Phase 1: Core MVP - CLI Scanner & Uploader (macOS Focus)
 
 **Goal:** Establish the fundamental backend logic for scanning the Apple Photos library on macOS, authenticating with Google, uploading files, and basic state management. Output will be via console logs.
@@ -36,16 +45,18 @@ This document outlines the development tasks required to build the uploader appl
   - *Coverage:* Test all CRUD operations and query logic.
 
 ### 1.3 Authentication (Google OAuth2)
-- [ ] **Task 1.3.1:** Implement `AuthManager` module.
+- [x] ✅ **Task 1.3.1:** Implement `AuthManager` module.
   - *Detail:* Use `google-auth-library`.
-- [ ] **Task 1.3.2:** Implement OAuth consent flow (open browser, handle redirect/OOB code).
-  - *Detail:* Initially, print URL to console for user to visit. Handle manual code input.
-- [ ] **Task 1.3.3:** Securely store tokens (macOS Keychain).
-  - *Dependency:* Use `keytar` or similar library.
-  - *Fallback:* For initial CLI, store in a file with restricted permissions (clearly mark as temporary).
-- [ ] **Task 1.3.4:** Implement token refresh logic.
-  - *Detail:* Check token expiry before making API calls, refresh if needed using the refresh token.
-- [ ] **Task 1.3.5:** Add basic unit tests for `AuthManager` (mocking `google-auth-library` and `keytar`).
+- [x] ✅ **Task 1.3.2:** Implement OAuth consent flow (open browser, handle redirect/OOB code).
+  - *Detail:* Print auth URL to console for user to visit. Handle manual code input via CLI.
+- [x] ✅ **Task 1.3.3:** Handle OAuth Credentials & Token Storage (Phase 1).
+  - *Credentials:* Load `clientId` and `clientSecret` from required `config.json` file located in `~/.config/photo-migrator/` (or OS equivalent). See FSD 3.2.1 for format.
+  - *Tokens:* Store received OAuth tokens (access, refresh, expiry, scope) in `google-tokens.json` within the same configuration directory using Node.js `fs` module with restricted permissions (0o600).
+  - *Note:* This file-based storage is for Phase 1 simplicity. Secure storage (`keytar`) and client secret handling (backend proxy) are planned for Phase 4 (Tasks 4.6.1, 4.6.2).
+- [x] ✅ **Task 1.3.4:** Implement token refresh logic.
+  - *Detail:* Utilize `google-auth-library`'s built-in refresh capabilities. Ensure loaded refresh token is used and updated tokens (access token, expiry) are re-stored to `google-tokens.json` after successful refresh.
+- [x] ✅ **Task 1.3.5:** Add basic unit tests for `AuthManager`.
+  - *Detail:* Mock `google-auth-library` and Node.js `fs` module. Test initialization (config loading), auth URL generation, code handling, token loading, access token retrieval (including refresh), and token clearing.
 
 ### 1.4 Media Scanner (macOS - Swift Bridge)
 - [ ] **Task 1.4.1:** Create a Swift command-line tool project (`MediaScannerMac`).
