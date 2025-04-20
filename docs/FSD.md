@@ -40,17 +40,18 @@ The app is a desktop application built using Electron, React, and Node.js that u
 ```sql
 CREATE TABLE media_items (
   id TEXT PRIMARY KEY,
+  media_type TEXT CHECK(media_type IN ('photo', 'video')) NOT NULL,
+  mime_type TEXT NOT NULL,
   original_path TEXT NOT NULL,
   local_copy_path TEXT,
   original_name TEXT NOT NULL,
   size_bytes INTEGER,
+  creation_date TEXT,
   sha256_hash TEXT,
   visual_hash TEXT,
   pixel_size TEXT,
-  creation_date TEXT,
-  media_type TEXT CHECK(media_type IN ('photo', 'video')),
-  duration_seconds INTEGER,
-  mime_type TEXT,
+  duration_seconds REAL,
+  frame_rate REAL,
   codec TEXT,
   status TEXT CHECK(status IN ('pending', 'exported', 'uploaded', 'failed', 'skipped')),
   retry_count INTEGER DEFAULT 0,
@@ -64,15 +65,23 @@ CREATE TABLE batches (
   created_at TEXT,
   status TEXT CHECK(status IN ('planned', 'uploading', 'complete', 'failed')),
   total_size INTEGER,
-  files_count INTEGER,
-  photo_count INTEGER,
-  video_count INTEGER
+  files_count INTEGER
 );
 
 CREATE TABLE settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- Indexes for optimizing common queries
+CREATE INDEX idx_media_status ON media_items(status);
+CREATE INDEX idx_media_sha256_hash ON media_items(sha256_hash);
+CREATE INDEX idx_media_type ON media_items(media_type);
+CREATE INDEX idx_media_mime_type ON media_items(mime_type);
+CREATE INDEX idx_media_retry_count ON media_items(retry_count);
+CREATE INDEX idx_media_type_status ON media_items(media_type, status);
+CREATE INDEX idx_media_mime_status ON media_items(mime_type, status);
+CREATE INDEX idx_batches_status ON batches(status);
 ```
 
 ### 4.2 JSON Config Format (Stored via `electron-store`)

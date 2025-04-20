@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { DatabaseManager, MediaItem, Batch } from './database';
+import { DatabaseManager, MediaItem, Batch, MediaType, MediaStatus } from './database';
 
 // Mock the logger to avoid console output during tests
 vi.mock('./logger', () => ({
@@ -14,14 +14,31 @@ vi.mock('./logger', () => ({
 }));
 
 // Test data factories
-const createTestPhoto = (override: Partial<Omit<MediaItem, 'retry_count'>> = {}): Omit<MediaItem, 'retry_count'> => ({
+const createTestMedia = (
+  type: MediaType = 'photo',
+  override: Partial<Omit<MediaItem, 'retry_count'>> = {}
+): Omit<MediaItem, 'retry_count'> => ({
   id: `test-${Date.now()}-${Math.round(Math.random() * 1000)}`,
-  original_path: '/path/to/photo.jpg',
-  original_name: 'photo.jpg',
+  media_type: type,
+  mime_type: type === 'photo' ? 'image/jpeg' : 'video/mp4',
+  original_path: type === 'photo' ? '/path/to/photo.jpg' : '/path/to/video.mp4',
+  original_name: type === 'photo' ? 'photo.jpg' : 'video.mp4',
   size_bytes: 1024,
   status: 'pending',
+  ...(type === 'video' ? {
+    duration_seconds: 30,
+    frame_rate: 30,
+    codec: 'h264'
+  } : {}),
   ...override,
 });
+
+// Convenience wrappers
+const createTestPhoto = (override: Partial<Omit<MediaItem, 'retry_count'>> = {}): Omit<MediaItem, 'retry_count'> => 
+  createTestMedia('photo', override);
+
+const createTestVideo = (override: Partial<Omit<MediaItem, 'retry_count'>> = {}): Omit<MediaItem, 'retry_count'> => 
+  createTestMedia('video', override);
 
 const createTestBatch = (override: Partial<Omit<Batch, 'created_at'>> = {}): Omit<Batch, 'created_at'> => ({
   id: `batch-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -61,101 +78,171 @@ describe('DatabaseManager', () => {
     });
   });
 
-  describe('addPhoto', () => {
+  describe('addMediaItem', () => {
     it('should add a photo to the database', () => {
       const photoData = createTestPhoto({
         id: 'test-id-1',
-        original_path: '/path/to/photo.jpg',
-        local_copy_path: '/temp/photo.jpg',
+        mime_type: 'image/png',
+        original_path: '/path/to/photo.png',
+        local_copy_path: '/temp/photo.png',
         google_photos_id: 'google-123',
         error_message: undefined,
       });
 
-      const id = dbManager.addPhoto(photoData);
+      const id = dbManager.addMediaItem(photoData);
       
       expect(id).toBe('test-id-1');
       
       // Verify the photo was added
-      const photos = dbManager.getPhotosByStatus('pending');
+      const photos = dbManager.getMediaByTypeAndStatus('photo', 'pending');
       expect(photos.length).toBe(1);
       expect(photos[0].id).toBe('test-id-1');
-      expect(photos[0].original_path).toBe('/path/to/photo.jpg');
-      expect(photos[0].local_copy_path).toBe('/temp/photo.jpg');
+      expect(photos[0].media_type).toBe('photo');
+      expect(photos[0].mime_type).toBe('image/png');
+      expect(photos[0].original_path).toBe('/path/to/photo.png');
+      expect(photos[0].local_copy_path).toBe('/temp/photo.png');
       expect(photos[0].google_photos_id).toBe('google-123');
       expect(photos[0].size_bytes).toBe(1024);
       expect(photos[0].retry_count).toBe(0);
     });
 
-    it('should fail with a unique constraint error if trying to add a photo with existing id', () => {
+    it('should add a video to the database', () => {
+      const videoData = createTestVideo({
+        id: 'video-id-1',
+        mime_type: 'video/quicktime',
+        original_path: '/path/to/video.mov',
+        local_copy_path: '/temp/video.mov',
+        duration_seconds: 120,
+        frame_rate: 29.97,
+        codec: 'h264',
+      });
+
+      const id = dbManager.addMediaItem(videoData);
+      
+      expect(id).toBe('video-id-1');
+      
+      // Verify the video was added
+      const videos = dbManager.getMediaByTypeAndStatus('video', 'pending');
+      expect(videos.length).toBe(1);
+      expect(videos[0].id).toBe('video-id-1');
+      expect(videos[0].media_type).toBe('video');
+      expect(videos[0].mime_type).toBe('video/quicktime');
+      expect(videos[0].original_path).toBe('/path/to/video.mov');
+      expect(videos[0].duration_seconds).toBe(120);
+      expect(videos[0].frame_rate).toBe(29.97);
+      expect(videos[0].codec).toBe('h264');
+    });
+
+    it('should fail with a unique constraint error if trying to add a media item with existing id', () => {
       const photoData = createTestPhoto({ id: 'duplicate-id' });
       
       // Add the photo once
-      dbManager.addPhoto(photoData);
+      dbManager.addMediaItem(photoData);
       
       // Try to add again with the same ID
-      expect(() => dbManager.addPhoto(photoData)).toThrow();
+      expect(() => dbManager.addMediaItem(photoData)).toThrow();
     });
   });
 
-  describe('addPhotoBatch', () => {
-    it('should add multiple photos in a batch transaction', () => {
-      const photos = [
-        createTestPhoto({ id: 'batch-1', original_name: 'photo1.jpg' }),
-        createTestPhoto({ id: 'batch-2', original_name: 'photo2.jpg' }),
-        createTestPhoto({ id: 'batch-3', original_name: 'photo3.jpg' }),
-      ];
+  describe('Legacy methods compatibility', () => {
+    it('should use addPhoto as a wrapper for addMediaItem with photo type', () => {
+      const photoData = createTestPhoto({
+        id: 'legacy-id',
+        original_name: 'legacy.jpg',
+        // Deliberately omit mime_type to test the default
+        mime_type: undefined as any
+      });
       
-      const ids = dbManager.addPhotoBatch(photos);
+      const id = dbManager.addPhoto(photoData);
+      expect(id).toBe('legacy-id');
       
-      expect(ids).toHaveLength(3);
-      expect(ids).toContain('batch-1');
-      expect(ids).toContain('batch-2');
-      expect(ids).toContain('batch-3');
-      
-      // Verify all photos were added
-      const pendingPhotos = dbManager.getPendingPhotos(10);
-      expect(pendingPhotos.length).toBe(3);
+      const media = dbManager.getMediaById('legacy-id');
+      expect(media).toBeDefined();
+      expect(media?.media_type).toBe('photo');
+      expect(media?.mime_type).toBe('image/jpeg'); // Should use default mime type
     });
 
-    it('should return an empty array if no photos are provided', () => {
-      const ids = dbManager.addPhotoBatch([]);
+    it('should handle a custom mime_type when using legacy method', () => {
+      const photoData = createTestPhoto({
+        id: 'legacy-id-2',
+        mime_type: 'image/webp',
+        original_name: 'legacy.webp',
+      });
+      
+      dbManager.addPhoto(photoData);
+      
+      const media = dbManager.getMediaById('legacy-id-2');
+      expect(media?.mime_type).toBe('image/webp');
+    });
+  });
+
+  describe('addMediaBatch', () => {
+    it('should add multiple media items in a batch transaction', () => {
+      const mediaItems = [
+        createTestPhoto({ id: 'batch-photo-1', original_name: 'photo1.jpg' }),
+        createTestPhoto({ id: 'batch-photo-2', original_name: 'photo2.jpg' }),
+        createTestVideo({ id: 'batch-video-1', original_name: 'video1.mp4' }),
+      ];
+      
+      const ids = dbManager.addMediaBatch(mediaItems);
+      
+      expect(ids).toHaveLength(3);
+      expect(ids).toContain('batch-photo-1');
+      expect(ids).toContain('batch-photo-2');
+      expect(ids).toContain('batch-video-1');
+      
+      // Verify photos were added
+      const photos = dbManager.getMediaByTypeAndStatus('photo', 'pending');
+      expect(photos.length).toBe(2);
+      
+      // Verify videos were added
+      const videos = dbManager.getMediaByTypeAndStatus('video', 'pending');
+      expect(videos.length).toBe(1);
+      
+      // Verify all pending media
+      const pendingMedia = dbManager.getMediaByStatus('pending');
+      expect(pendingMedia.length).toBe(3);
+    });
+
+    it('should return an empty array if no media items are provided', () => {
+      const ids = dbManager.addMediaBatch([]);
       expect(ids).toHaveLength(0);
     });
   });
 
-  describe('updatePhotoStatus', () => {
-    it('should update the status of a photo', () => {
-      // First add a photo
+  describe('updateMediaStatus', () => {
+    it('should update the status of a media item', () => {
+      // First add a media item
       const photoData = createTestPhoto({ id: 'test-id-2' });
       
-      dbManager.addPhoto(photoData);
+      dbManager.addMediaItem(photoData);
       
       // Update the status
-      const result = dbManager.updatePhotoStatus('test-id-2', 'uploaded', 'Successfully uploaded');
+      const result = dbManager.updateMediaStatus('test-id-2', 'uploaded', 'Successfully uploaded');
       
       expect(result).toBe(true);
       
       // Verify the status was updated
-      const photos = dbManager.getPhotosByStatus('uploaded');
-      expect(photos.length).toBe(1);
-      expect(photos[0].id).toBe('test-id-2');
-      expect(photos[0].status).toBe('uploaded');
-      expect(photos[0].error_message).toBe('Successfully uploaded');
+      const media = dbManager.getMediaByStatus('uploaded');
+      expect(media.length).toBe(1);
+      expect(media[0].id).toBe('test-id-2');
+      expect(media[0].status).toBe('uploaded');
+      expect(media[0].error_message).toBe('Successfully uploaded');
     });
 
-    it('should return false when updating a non-existent photo', () => {
-      const result = dbManager.updatePhotoStatus('non-existent-id', 'uploaded');
+    it('should return false when updating a non-existent media item', () => {
+      const result = dbManager.updateMediaStatus('non-existent-id', 'uploaded');
       
       expect(result).toBe(false);
     });
   });
 
   describe('updateGooglePhotosId', () => {
-    it('should update the Google Photos ID for a photo', () => {
-      // First add a photo
+    it('should update the Google Photos ID for a media item', () => {
+      // First add a media item
       const photoData = createTestPhoto({ id: 'google-update-test' });
       
-      dbManager.addPhoto(photoData);
+      dbManager.addMediaItem(photoData);
       
       // Update the Google Photos ID
       const result = dbManager.updateGooglePhotosId('google-update-test', 'google-photos-id-123');
@@ -163,12 +250,12 @@ describe('DatabaseManager', () => {
       expect(result).toBe(true);
       
       // Verify the Google Photos ID was updated
-      const photo = dbManager.getPhotoById('google-update-test');
-      expect(photo).toBeDefined();
-      expect(photo?.google_photos_id).toBe('google-photos-id-123');
+      const media = dbManager.getMediaById('google-update-test');
+      expect(media).toBeDefined();
+      expect(media?.google_photos_id).toBe('google-photos-id-123');
     });
 
-    it('should return false when updating a non-existent photo', () => {
+    it('should return false when updating a non-existent media item', () => {
       const result = dbManager.updateGooglePhotosId('non-existent-id', 'test-id');
       
       expect(result).toBe(false);
@@ -176,11 +263,11 @@ describe('DatabaseManager', () => {
   });
 
   describe('updateLocalCopyPath', () => {
-    it('should update the local copy path for a photo', () => {
-      // First add a photo
+    it('should update the local copy path for a media item', () => {
+      // First add a media item
       const photoData = createTestPhoto({ id: 'local-path-test' });
       
-      dbManager.addPhoto(photoData);
+      dbManager.addMediaItem(photoData);
       
       // Update the local copy path
       const result = dbManager.updateLocalCopyPath('local-path-test', '/tmp/exported/photo.jpg');
@@ -188,145 +275,214 @@ describe('DatabaseManager', () => {
       expect(result).toBe(true);
       
       // Verify the local copy path was updated
-      const photo = dbManager.getPhotoById('local-path-test');
-      expect(photo).toBeDefined();
-      expect(photo?.local_copy_path).toBe('/tmp/exported/photo.jpg');
+      const media = dbManager.getMediaById('local-path-test');
+      expect(media).toBeDefined();
+      expect(media?.local_copy_path).toBe('/tmp/exported/photo.jpg');
     });
 
-    it('should return false when updating a non-existent photo', () => {
+    it('should return false when updating a non-existent media item', () => {
       const result = dbManager.updateLocalCopyPath('non-existent-id', '/tmp/not-found.jpg');
       
       expect(result).toBe(false);
     });
   });
 
-  describe('getPhotosByStatus and getPendingPhotos', () => {
+  describe('getMediaByStatus and type filtering', () => {
     beforeEach(() => {
-      // Add multiple photos with different statuses
-      dbManager.addPhoto(createTestPhoto({
-        id: 'pending-1',
-        original_path: '/path/pending1.jpg',
-        original_name: 'pending1.jpg',
+      // Add multiple media items with different types and statuses
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'pending-photo-1',
+        original_path: '/path/pending-photo1.jpg',
+        original_name: 'pending-photo1.jpg',
         status: 'pending',
       }));
       
-      dbManager.addPhoto(createTestPhoto({
-        id: 'pending-2',
-        original_path: '/path/pending2.jpg',
-        original_name: 'pending2.jpg',
-        status: 'pending',
-      }));
-      
-      dbManager.addPhoto(createTestPhoto({
-        id: 'uploaded-1',
-        original_path: '/path/uploaded1.jpg',
-        original_name: 'uploaded1.jpg',
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'uploaded-photo-1',
+        original_path: '/path/uploaded-photo1.jpg',
+        original_name: 'uploaded-photo1.jpg',
         status: 'uploaded',
+      }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'pending-video-1',
+        original_path: '/path/pending-video1.mp4',
+        original_name: 'pending-video1.mp4',
+        status: 'pending',
+      }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'failed-video-1',
+        original_path: '/path/failed-video1.mp4',
+        original_name: 'failed-video1.mp4',
+        status: 'failed',
       }));
     });
 
-    it('should return photos with the specified status', () => {
-      const pendingPhotos = dbManager.getPhotosByStatus('pending');
-      const uploadedPhotos = dbManager.getPhotosByStatus('uploaded');
+    it('should return media items with the specified status', () => {
+      const pendingMedia = dbManager.getMediaByStatus('pending');
+      const uploadedMedia = dbManager.getMediaByStatus('uploaded');
+      const failedMedia = dbManager.getMediaByStatus('failed');
       
-      expect(pendingPhotos.length).toBe(2);
-      expect(uploadedPhotos.length).toBe(1);
+      expect(pendingMedia.length).toBe(2);
+      expect(uploadedMedia.length).toBe(1);
+      expect(failedMedia.length).toBe(1);
+    });
+
+    it('should return media items with the specified type and status', () => {
+      const pendingPhotos = dbManager.getMediaByTypeAndStatus('photo', 'pending');
+      const pendingVideos = dbManager.getMediaByTypeAndStatus('video', 'pending');
       
-      expect(pendingPhotos[0].id).toBe('pending-1');
-      expect(pendingPhotos[1].id).toBe('pending-2');
-      expect(uploadedPhotos[0].id).toBe('uploaded-1');
+      expect(pendingPhotos.length).toBe(1);
+      expect(pendingVideos.length).toBe(1);
+      
+      expect(pendingPhotos[0].id).toBe('pending-photo-1');
+      expect(pendingVideos[0].id).toBe('pending-video-1');
     });
 
     it('should respect the limit parameter', () => {
-      const pendingPhotos = dbManager.getPhotosByStatus('pending', 1);
+      // Add another pending photo to have multiple
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'pending-photo-2',
+        original_path: '/path/pending-photo2.jpg',
+        original_name: 'pending-photo2.jpg',
+        status: 'pending',
+      }));
       
-      expect(pendingPhotos.length).toBe(1);
-      expect(pendingPhotos[0].id).toBe('pending-1');
+      const pendingMedia = dbManager.getMediaByStatus('pending', 2);
+      
+      expect(pendingMedia.length).toBe(2);
     });
 
-    it('getPendingPhotos should return the same results as getPhotosByStatus', () => {
-      const pendingUsingGeneric = dbManager.getPhotosByStatus('pending');
-      const pendingUsingSpecific = dbManager.getPendingPhotos();
+    it('getPendingPhotos should return only photos with pending status', () => {
+      const pendingPhotos = dbManager.getPendingPhotos();
+      const pendingVideos = dbManager.getPendingVideos();
       
-      expect(pendingUsingSpecific.length).toBe(pendingUsingGeneric.length);
-      expect(pendingUsingSpecific[0].id).toBe(pendingUsingGeneric[0].id);
+      expect(pendingPhotos.length).toBe(1);
+      expect(pendingVideos.length).toBe(1);
+      
+      expect(pendingPhotos[0].id).toBe('pending-photo-1');
+      expect(pendingVideos[0].id).toBe('pending-video-1');
     });
   });
 
-  describe('getPhotoByHash', () => {
+  describe('getMediaByHash', () => {
     beforeEach(() => {
-      dbManager.addPhoto(createTestPhoto({
-        id: 'hash-test',
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'hash-test-photo',
         original_path: '/path/hash-test.jpg',
         original_name: 'hash-test.jpg',
-        sha256_hash: 'test-hash-value',
+        sha256_hash: 'test-photo-hash-value',
+        status: 'pending',
+      }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'hash-test-video',
+        original_path: '/path/hash-test.mp4',
+        original_name: 'hash-test.mp4',
+        sha256_hash: 'test-video-hash-value',
         status: 'pending',
       }));
     });
 
-    it('should return a photo with the matching hash', () => {
-      const photo = dbManager.getPhotoByHash('test-hash-value');
+    it('should return a media item with the matching hash', () => {
+      const photo = dbManager.getMediaByHash('test-photo-hash-value');
+      const video = dbManager.getMediaByHash('test-video-hash-value');
       
       expect(photo).toBeDefined();
-      expect(photo?.id).toBe('hash-test');
+      expect(photo?.id).toBe('hash-test-photo');
+      expect(photo?.media_type).toBe('photo');
+      
+      expect(video).toBeDefined();
+      expect(video?.id).toBe('hash-test-video');
+      expect(video?.media_type).toBe('video');
     });
 
     it('should return undefined for a non-existent hash', () => {
-      const photo = dbManager.getPhotoByHash('non-existent-hash');
+      const media = dbManager.getMediaByHash('non-existent-hash');
       
-      expect(photo).toBeUndefined();
+      expect(media).toBeUndefined();
     });
   });
 
-  describe('getPhotoById', () => {
+  describe('getMediaById', () => {
     beforeEach(() => {
-      dbManager.addPhoto(createTestPhoto({
-        id: 'id-test',
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'id-test-photo',
         original_path: '/path/id-test.jpg',
         original_name: 'id-test.jpg',
         status: 'pending',
       }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'id-test-video',
+        original_path: '/path/id-test.mp4',
+        original_name: 'id-test.mp4',
+        status: 'pending',
+      }));
     });
 
-    it('should return a photo with the matching id', () => {
-      const photo = dbManager.getPhotoById('id-test');
+    it('should return a media item with the matching id', () => {
+      const photo = dbManager.getMediaById('id-test-photo');
+      const video = dbManager.getMediaById('id-test-video');
       
       expect(photo).toBeDefined();
       expect(photo?.original_path).toBe('/path/id-test.jpg');
+      expect(photo?.media_type).toBe('photo');
+      
+      expect(video).toBeDefined();
+      expect(video?.original_path).toBe('/path/id-test.mp4');
+      expect(video?.media_type).toBe('video');
     });
 
     it('should return undefined for a non-existent id', () => {
-      const photo = dbManager.getPhotoById('non-existent-id');
+      const media = dbManager.getMediaById('non-existent-id');
       
-      expect(photo).toBeUndefined();
+      expect(media).toBeUndefined();
     });
   });
 
   describe('count methods', () => {
     beforeEach(() => {
-      // Add photos with different statuses
-      dbManager.addPhoto(createTestPhoto({ id: 'p1', original_path: '/p1', original_name: 'p1.jpg', status: 'pending' }));
-      dbManager.addPhoto(createTestPhoto({ id: 'p2', original_path: '/p2', original_name: 'p2.jpg', status: 'pending' }));
-      dbManager.addPhoto(createTestPhoto({ id: 'u1', original_path: '/u1', original_name: 'u1.jpg', status: 'uploaded' }));
-      dbManager.addPhoto(createTestPhoto({ id: 'f1', original_path: '/f1', original_name: 'f1.jpg', status: 'failed' }));
+      // Add media items with different types and statuses
+      dbManager.addMediaItem(createTestPhoto({ id: 'p1', original_path: '/p1', original_name: 'p1.jpg', status: 'pending' }));
+      dbManager.addMediaItem(createTestPhoto({ id: 'p2', original_path: '/p2', original_name: 'p2.jpg', status: 'pending' }));
+      dbManager.addMediaItem(createTestPhoto({ id: 'pu', original_path: '/pu', original_name: 'pu.jpg', status: 'uploaded' }));
+      dbManager.addMediaItem(createTestVideo({ id: 'v1', original_path: '/v1', original_name: 'v1.mp4', status: 'pending' }));
+      dbManager.addMediaItem(createTestVideo({ id: 'v2', original_path: '/v2', original_name: 'v2.mp4', status: 'failed' }));
     });
 
-    it('should return the total count of photos', () => {
+    it('should return the total count of media items', () => {
       const totalCount = dbManager.getTotalCount();
-      
-      expect(totalCount).toBe(4);
+      expect(totalCount).toBe(5);
     });
 
-    it('should return the count of photos by status', () => {
+    it('should return the count of media items by type', () => {
+      const photoCount = dbManager.getCountByType('photo');
+      const videoCount = dbManager.getCountByType('video');
+      
+      expect(photoCount).toBe(3);
+      expect(videoCount).toBe(2);
+    });
+
+    it('should return the count of media items by status', () => {
       const pendingCount = dbManager.getCountByStatus('pending');
       const uploadedCount = dbManager.getCountByStatus('uploaded');
       const failedCount = dbManager.getCountByStatus('failed');
       const exportedCount = dbManager.getCountByStatus('exported');
       
-      expect(pendingCount).toBe(2);
+      expect(pendingCount).toBe(3); // 2 photos + 1 video
       expect(uploadedCount).toBe(1);
       expect(failedCount).toBe(1);
       expect(exportedCount).toBe(0);
+    });
+
+    it('should return the count of media items by type and status', () => {
+      const pendingPhotoCount = dbManager.getCountByTypeAndStatus('photo', 'pending');
+      const pendingVideoCount = dbManager.getCountByTypeAndStatus('video', 'pending');
+      
+      expect(pendingPhotoCount).toBe(2);
+      expect(pendingVideoCount).toBe(1);
     });
 
     it('getCompletedCount should return the same results as getCountByStatus for uploaded', () => {
@@ -339,30 +495,42 @@ describe('DatabaseManager', () => {
 
   describe('incrementRetryCount', () => {
     beforeEach(() => {
-      dbManager.addPhoto(createTestPhoto({
-        id: 'retry-test',
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'retry-test-photo',
         original_path: '/path/retry-test.jpg',
         original_name: 'retry-test.jpg',
         status: 'failed',
       }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'retry-test-video',
+        original_path: '/path/retry-test.mp4',
+        original_name: 'retry-test.mp4',
+        status: 'failed',
+      }));
     });
 
-    it('should increment the retry count for a photo', () => {
-      const newCount = dbManager.incrementRetryCount('retry-test');
+    it('should increment the retry count for a media item', () => {
+      const newPhotoCount = dbManager.incrementRetryCount('retry-test-photo');
+      const newVideoCount = dbManager.incrementRetryCount('retry-test-video');
       
-      expect(newCount).toBe(1);
+      expect(newPhotoCount).toBe(1);
+      expect(newVideoCount).toBe(1);
       
       // Increment again
-      const secondCount = dbManager.incrementRetryCount('retry-test');
+      const secondPhotoCount = dbManager.incrementRetryCount('retry-test-photo');
       
-      expect(secondCount).toBe(2);
+      expect(secondPhotoCount).toBe(2);
       
       // Verify in the database
-      const photo = dbManager.getPhotoById('retry-test');
+      const photo = dbManager.getMediaById('retry-test-photo');
+      const video = dbManager.getMediaById('retry-test-video');
+      
       expect(photo?.retry_count).toBe(2);
+      expect(video?.retry_count).toBe(1);
     });
 
-    it('should return -1 for a non-existent photo', () => {
+    it('should return -1 for a non-existent media item', () => {
       const result = dbManager.incrementRetryCount('non-existent-id');
       
       expect(result).toBe(-1);
@@ -455,12 +623,92 @@ describe('DatabaseManager', () => {
     });
 
     it('should handle SQL constraint violations', () => {
-      // Add a photo
-      const photoData = createTestPhoto({ id: 'constraint-test' });
-      dbManager.addPhoto(photoData);
+      // Add a media item
+      const mediaData = createTestPhoto({ id: 'constraint-test' });
+      dbManager.addMediaItem(mediaData);
       
-      // Try to add another photo with the same ID
-      expect(() => dbManager.addPhoto(photoData)).toThrow();
+      // Try to add another media item with the same ID
+      expect(() => dbManager.addMediaItem(mediaData)).toThrow();
+    });
+  });
+
+  describe('MIME type operations', () => {
+    beforeEach(() => {
+      // Add multiple media items with different MIME types
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'jpeg-photo-1',
+        mime_type: 'image/jpeg',
+        original_name: 'jpeg-photo.jpg',
+        status: 'pending',
+      }));
+      
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'png-photo-1',
+        mime_type: 'image/png',
+        original_name: 'png-photo.png',
+        status: 'pending',
+      }));
+      
+      dbManager.addMediaItem(createTestPhoto({
+        id: 'png-photo-2',
+        mime_type: 'image/png',
+        original_name: 'png-photo2.png',
+        status: 'uploaded',
+      }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'mp4-video-1',
+        mime_type: 'video/mp4',
+        original_name: 'mp4-video.mp4',
+        status: 'pending',
+      }));
+      
+      dbManager.addMediaItem(createTestVideo({
+        id: 'webm-video-1',
+        mime_type: 'video/webm',
+        original_name: 'webm-video.webm',
+        status: 'pending',
+      }));
+    });
+
+    it('should get media items by MIME type', () => {
+      const jpegPhotos = dbManager.getMediaByMimeType('image/jpeg');
+      const pngPhotos = dbManager.getMediaByMimeType('image/png');
+      const mp4Videos = dbManager.getMediaByMimeType('video/mp4');
+      
+      expect(jpegPhotos.length).toBe(1);
+      expect(pngPhotos.length).toBe(2);
+      expect(mp4Videos.length).toBe(1);
+      
+      expect(jpegPhotos[0].id).toBe('jpeg-photo-1');
+      expect(pngPhotos.map(item => item.id)).toContain('png-photo-1');
+      expect(pngPhotos.map(item => item.id)).toContain('png-photo-2');
+      expect(mp4Videos[0].id).toBe('mp4-video-1');
+    });
+
+    it('should get media items by MIME type and status', () => {
+      const pendingPngPhotos = dbManager.getMediaByMimeTypeAndStatus('image/png', 'pending');
+      const uploadedPngPhotos = dbManager.getMediaByMimeTypeAndStatus('image/png', 'uploaded');
+      
+      expect(pendingPngPhotos.length).toBe(1);
+      expect(uploadedPngPhotos.length).toBe(1);
+      
+      expect(pendingPngPhotos[0].id).toBe('png-photo-1');
+      expect(uploadedPngPhotos[0].id).toBe('png-photo-2');
+    });
+
+    it('should get count of media items by MIME type', () => {
+      const jpegCount = dbManager.getCountByMimeType('image/jpeg');
+      const pngCount = dbManager.getCountByMimeType('image/png');
+      const mp4Count = dbManager.getCountByMimeType('video/mp4');
+      const webmCount = dbManager.getCountByMimeType('video/webm');
+      const nonExistentCount = dbManager.getCountByMimeType('application/pdf');
+      
+      expect(jpegCount).toBe(1);
+      expect(pngCount).toBe(2);
+      expect(mp4Count).toBe(1);
+      expect(webmCount).toBe(1);
+      expect(nonExistentCount).toBe(0);
     });
   });
 }); 

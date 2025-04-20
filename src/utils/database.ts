@@ -3,8 +3,13 @@ import path from 'path';
 import fs from 'fs';
 import { logger } from './logger';
 
+export type MediaType = 'photo' | 'video';
+export type MediaStatus = 'pending' | 'exported' | 'uploaded' | 'failed' | 'skipped';
+
 export interface MediaItem {
   id: string;
+  media_type: MediaType;
+  mime_type: string; // e.g., "image/jpeg", "video/mp4", etc.
   original_path: string;
   local_copy_path?: string;
   original_name: string;
@@ -13,7 +18,11 @@ export interface MediaItem {
   sha256_hash?: string;
   visual_hash?: string;
   pixel_size?: string;
-  status: 'pending' | 'exported' | 'uploaded' | 'failed' | 'skipped';
+  // Video-specific fields
+  duration_seconds?: number;
+  frame_rate?: number;
+  codec?: string;
+  status: MediaStatus;
   retry_count: number;
   last_attempt_at?: string;
   google_photos_id?: string;
@@ -82,6 +91,8 @@ export class DatabaseManager {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS media_items (
           id TEXT PRIMARY KEY,
+          media_type TEXT CHECK(media_type IN ('photo', 'video')) NOT NULL,
+          mime_type TEXT NOT NULL,
           original_path TEXT NOT NULL,
           local_copy_path TEXT,
           original_name TEXT NOT NULL,
@@ -90,6 +101,9 @@ export class DatabaseManager {
           sha256_hash TEXT,
           visual_hash TEXT,
           pixel_size TEXT,
+          duration_seconds REAL,
+          frame_rate REAL,
+          codec TEXT,
           status TEXT CHECK(status IN ('pending', 'exported', 'uploaded', 'failed', 'skipped')),
           retry_count INTEGER DEFAULT 0,
           last_attempt_at TEXT,
@@ -121,8 +135,14 @@ export class DatabaseManager {
       this.db.exec(`
         CREATE INDEX IF NOT EXISTS idx_media_status ON media_items(status);
         CREATE INDEX IF NOT EXISTS idx_media_sha256_hash ON media_items(sha256_hash);
+        CREATE INDEX IF NOT EXISTS idx_media_type ON media_items(media_type);
+        CREATE INDEX IF NOT EXISTS idx_media_mime_type ON media_items(mime_type);
         CREATE INDEX IF NOT EXISTS idx_media_retry_count ON media_items(retry_count);
         CREATE INDEX IF NOT EXISTS idx_batches_status ON batches(status);
+        
+        -- Compound indexes for multi-field queries
+        CREATE INDEX IF NOT EXISTS idx_media_type_status ON media_items(media_type, status);
+        CREATE INDEX IF NOT EXISTS idx_media_mime_status ON media_items(mime_type, status);
       `);
 
       this.isInitialized = true;
@@ -136,46 +156,53 @@ export class DatabaseManager {
   }
 
   /**
-   * Add a new photo to the database
+   * Add a new media item to the database
    */
-  public addPhoto(photo: Omit<MediaItem, 'retry_count'>): string {
+  public addMediaItem(media: Omit<MediaItem, 'retry_count'>): string {
     try {
       const stmt = this.db.prepare(`
         INSERT INTO media_items 
-        (id, original_path, local_copy_path, original_name, size_bytes, creation_date, sha256_hash, visual_hash, pixel_size, status, retry_count, last_attempt_at, google_photos_id, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        (id, media_type, mime_type, original_path, local_copy_path, original_name, size_bytes, creation_date, 
+         sha256_hash, visual_hash, pixel_size, duration_seconds, frame_rate, codec, status, 
+         retry_count, last_attempt_at, google_photos_id, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `);
 
       stmt.run(
-        photo.id,
-        photo.original_path,
-        photo.local_copy_path || null,
-        photo.original_name,
-        photo.size_bytes || null,
-        photo.creation_date || null,
-        photo.sha256_hash || null,
-        photo.visual_hash || null,
-        photo.pixel_size || null,
-        photo.status || 'pending',
-        photo.last_attempt_at || null,
-        photo.google_photos_id || null,
-        photo.error_message || null
+        media.id,
+        media.media_type,
+        media.mime_type,
+        media.original_path,
+        media.local_copy_path || null,
+        media.original_name,
+        media.size_bytes || null,
+        media.creation_date || null,
+        media.sha256_hash || null,
+        media.visual_hash || null,
+        media.pixel_size || null,
+        media.duration_seconds || null,
+        media.frame_rate || null,
+        media.codec || null,
+        media.status || 'pending',
+        media.last_attempt_at || null,
+        media.google_photos_id || null,
+        media.error_message || null
       );
       
-      logger.debug('Added photo to database', { id: photo.id });
-      return photo.id;
+      logger.debug('Added media item to database', { id: media.id, type: media.media_type, mimeType: media.mime_type });
+      return media.id;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to add photo to database', { error: safeError, photoId: photo.id });
+      logger.error('Failed to add media item to database', { error: safeError, mediaId: media.id });
       throw error;
     }
   }
 
   /**
-   * Add multiple photos to the database in a single transaction
+   * Add multiple media items to the database in a single transaction
    */
-  public addPhotoBatch(photos: Omit<MediaItem, 'retry_count'>[]): string[] {
-    if (photos.length === 0) {
+  public addMediaBatch(mediaItems: Omit<MediaItem, 'retry_count'>[]): string[] {
+    if (mediaItems.length === 0) {
       return [];
     }
 
@@ -183,50 +210,57 @@ export class DatabaseManager {
       const ids: string[] = [];
       
       // Use a transaction for better performance and atomicity
-      const transaction = this.db.transaction((photoList: Omit<MediaItem, 'retry_count'>[]) => {
+      const transaction = this.db.transaction((mediaList: Omit<MediaItem, 'retry_count'>[]) => {
         const stmt = this.db.prepare(`
           INSERT INTO media_items 
-          (id, original_path, local_copy_path, original_name, size_bytes, creation_date, sha256_hash, visual_hash, pixel_size, status, retry_count, last_attempt_at, google_photos_id, error_message)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+          (id, media_type, mime_type, original_path, local_copy_path, original_name, size_bytes, creation_date, 
+           sha256_hash, visual_hash, pixel_size, duration_seconds, frame_rate, codec, status, 
+           retry_count, last_attempt_at, google_photos_id, error_message)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         `);
         
-        for (const photo of photoList) {
+        for (const media of mediaList) {
           stmt.run(
-            photo.id,
-            photo.original_path,
-            photo.local_copy_path || null,
-            photo.original_name,
-            photo.size_bytes || null,
-            photo.creation_date || null,
-            photo.sha256_hash || null,
-            photo.visual_hash || null,
-            photo.pixel_size || null,
-            photo.status || 'pending',
-            photo.last_attempt_at || null,
-            photo.google_photos_id || null,
-            photo.error_message || null
+            media.id,
+            media.media_type,
+            media.mime_type,
+            media.original_path,
+            media.local_copy_path || null,
+            media.original_name,
+            media.size_bytes || null,
+            media.creation_date || null,
+            media.sha256_hash || null,
+            media.visual_hash || null,
+            media.pixel_size || null,
+            media.duration_seconds || null,
+            media.frame_rate || null,
+            media.codec || null,
+            media.status || 'pending',
+            media.last_attempt_at || null,
+            media.google_photos_id || null,
+            media.error_message || null
           );
-          ids.push(photo.id);
+          ids.push(media.id);
         }
         
         return ids;
       });
       
-      transaction(photos);
+      transaction(mediaItems);
       
-      logger.debug(`Added ${photos.length} photos to database in batch`);
+      logger.debug(`Added ${mediaItems.length} media items to database in batch`);
       return ids;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to add photos in batch', { error: safeError, count: photos.length });
+      logger.error('Failed to add media items in batch', { error: safeError, count: mediaItems.length });
       throw error;
     }
   }
 
   /**
-   * Update the status of a photo in the database
+   * Update the status of a media item in the database
    */
-  public updatePhotoStatus(id: string, status: MediaItem['status'], errorMessage?: string): boolean {
+  public updateMediaStatus(id: string, status: MediaStatus, errorMessage?: string): boolean {
     try {
       const stmt = this.db.prepare(`
         UPDATE media_items 
@@ -242,21 +276,21 @@ export class DatabaseManager {
       );
       
       if (result.changes === 0) {
-        logger.warn('No photo found with the given ID', { id });
+        logger.warn('No media item found with the given ID', { id });
         return false;
       }
       
-      logger.debug('Updated photo status', { id, status });
+      logger.debug('Updated media item status', { id, status });
       return true;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to update photo status', { error: safeError, id, status });
+      logger.error('Failed to update media item status', { error: safeError, id, status });
       throw error;
     }
   }
 
   /**
-   * Update the Google Photos ID for a photo
+   * Update the Google Photos ID for a media item
    */
   public updateGooglePhotosId(id: string, googlePhotosId: string): boolean {
     try {
@@ -269,7 +303,7 @@ export class DatabaseManager {
       const result = stmt.run(googlePhotosId, id);
       
       if (result.changes === 0) {
-        logger.warn('No photo found with the given ID', { id });
+        logger.warn('No media item found with the given ID', { id });
         return false;
       }
       
@@ -283,7 +317,7 @@ export class DatabaseManager {
   }
 
   /**
-   * Update the local_copy_path for a photo
+   * Update the local_copy_path for a media item
    */
   public updateLocalCopyPath(id: string, localCopyPath: string): boolean {
     try {
@@ -296,7 +330,7 @@ export class DatabaseManager {
       const result = stmt.run(localCopyPath, id);
       
       if (result.changes === 0) {
-        logger.warn('No photo found with the given ID', { id });
+        logger.warn('No media item found with the given ID', { id });
         return false;
       }
       
@@ -310,9 +344,9 @@ export class DatabaseManager {
   }
 
   /**
-   * Get photos with a specific status
+   * Get media items with a specific status
    */
-  public getPhotosByStatus(status: MediaItem['status'], limit: number = 100): MediaItem[] {
+  public getMediaByStatus(status: MediaStatus, limit: number = 100): MediaItem[] {
     try {
       const stmt = this.db.prepare(`
         SELECT * FROM media_items
@@ -323,23 +357,55 @@ export class DatabaseManager {
       return stmt.all(status, limit) as MediaItem[];
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to get photos by status', { error: safeError, status });
+      logger.error('Failed to get media items by status', { error: safeError, status });
       throw error;
     }
   }
 
   /**
-   * Get pending photos (maintained for API compatibility with requirements)
-   * Simply calls getPhotosByStatus with 'pending'
+   * Get media items by type and status
    */
-  public getPendingPhotos(limit: number = 100): MediaItem[] {
-    return this.getPhotosByStatus('pending', limit);
+  public getMediaByTypeAndStatus(type: MediaType, status: MediaStatus, limit: number = 100): MediaItem[] {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM media_items
+        WHERE media_type = ? AND status = ?
+        LIMIT ?
+      `);
+
+      return stmt.all(type, status, limit) as MediaItem[];
+    } catch (error) {
+      const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      logger.error('Failed to get media items by type and status', { error: safeError, type, status });
+      throw error;
+    }
   }
 
   /**
-   * Get a photo by its SHA256 hash
+   * Get pending media items (maintained for API compatibility with requirements)
    */
-  public getPhotoByHash(hash: string): MediaItem | undefined {
+  public getPendingMedia(limit: number = 100): MediaItem[] {
+    return this.getMediaByStatus('pending', limit);
+  }
+
+  /**
+   * Get pending photos only
+   */
+  public getPendingPhotos(limit: number = 100): MediaItem[] {
+    return this.getMediaByTypeAndStatus('photo', 'pending', limit);
+  }
+
+  /**
+   * Get pending videos only
+   */
+  public getPendingVideos(limit: number = 100): MediaItem[] {
+    return this.getMediaByTypeAndStatus('video', 'pending', limit);
+  }
+
+  /**
+   * Get a media item by its SHA256 hash
+   */
+  public getMediaByHash(hash: string): MediaItem | undefined {
     try {
       const stmt = this.db.prepare(`
         SELECT * FROM media_items
@@ -350,15 +416,15 @@ export class DatabaseManager {
       return stmt.get(hash) as MediaItem | undefined;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to get photo by hash', { error: safeError, hash });
+      logger.error('Failed to get media item by hash', { error: safeError, hash });
       throw error;
     }
   }
 
   /**
-   * Get a photo by its ID
+   * Get a media item by its ID
    */
-  public getPhotoById(id: string): MediaItem | undefined {
+  public getMediaById(id: string): MediaItem | undefined {
     try {
       const stmt = this.db.prepare(`
         SELECT * FROM media_items
@@ -369,13 +435,13 @@ export class DatabaseManager {
       return stmt.get(id) as MediaItem | undefined;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to get photo by ID', { error: safeError, id });
+      logger.error('Failed to get media item by ID', { error: safeError, id });
       throw error;
     }
   }
 
   /**
-   * Get the total count of photos
+   * Get the total count of media items
    */
   public getTotalCount(): number {
     try {
@@ -387,15 +453,34 @@ export class DatabaseManager {
       return result.count;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to get total count of photos', { error: safeError });
+      logger.error('Failed to get total count of media items', { error: safeError });
       throw error;
     }
   }
 
   /**
-   * Get the count of photos by status
+   * Get the count of media items by type
    */
-  public getCountByStatus(status: MediaItem['status']): number {
+  public getCountByType(type: MediaType): number {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT COUNT(*) as count FROM media_items
+        WHERE media_type = ?
+      `);
+
+      const result = stmt.get(type) as { count: number };
+      return result.count;
+    } catch (error) {
+      const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      logger.error('Failed to get count of media items by type', { error: safeError, type });
+      throw error;
+    }
+  }
+
+  /**
+   * Get the count of media items by status
+   */
+  public getCountByStatus(status: MediaStatus): number {
     try {
       const stmt = this.db.prepare(`
         SELECT COUNT(*) as count FROM media_items
@@ -406,13 +491,32 @@ export class DatabaseManager {
       return result.count;
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
-      logger.error('Failed to get count of photos by status', { error: safeError, status });
+      logger.error('Failed to get count of media items by status', { error: safeError, status });
       throw error;
     }
   }
 
   /**
-   * Get the count of completed photos (status = 'uploaded')
+   * Get the count of media items by type and status
+   */
+  public getCountByTypeAndStatus(type: MediaType, status: MediaStatus): number {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT COUNT(*) as count FROM media_items
+        WHERE media_type = ? AND status = ?
+      `);
+
+      const result = stmt.get(type, status) as { count: number };
+      return result.count;
+    } catch (error) {
+      const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      logger.error('Failed to get count of media items by type and status', { error: safeError, type, status });
+      throw error;
+    }
+  }
+
+  /**
+   * Get the count of completed media items (status = 'uploaded')
    * Maintained for API compatibility with requirements
    */
   public getCompletedCount(): number {
@@ -420,7 +524,7 @@ export class DatabaseManager {
   }
 
   /**
-   * Increment the retry count for a photo
+   * Increment the retry count for a media item
    */
   public incrementRetryCount(id: string): number {
     try {
@@ -434,7 +538,7 @@ export class DatabaseManager {
       const result = stmt.get(new Date().toISOString(), id) as { retry_count: number } | undefined;
       
       if (!result) {
-        logger.warn('No photo found with the given ID', { id });
+        logger.warn('No media item found with the given ID', { id });
         return -1;
       }
       
@@ -563,6 +667,117 @@ export class DatabaseManager {
     } catch (error) {
       const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
       logger.error('Failed to vacuum database', { error: safeError });
+      throw error;
+    }
+  }
+
+  // Legacy methods for backward compatibility
+  
+  /**
+   * @deprecated Use addMediaItem instead
+   */
+  public addPhoto(photo: Omit<MediaItem, 'retry_count'>): string {
+    const mediaItem = {
+      ...photo,
+      media_type: 'photo' as MediaType,
+      mime_type: photo.mime_type || 'image/jpeg'
+    };
+    return this.addMediaItem(mediaItem);
+  }
+
+  /**
+   * @deprecated Use addMediaBatch instead
+   */
+  public addPhotoBatch(photos: Omit<MediaItem, 'retry_count'>[]): string[] {
+    const mediaItems = photos.map(photo => ({
+      ...photo,
+      media_type: 'photo' as MediaType,
+      mime_type: photo.mime_type || 'image/jpeg'
+    }));
+    return this.addMediaBatch(mediaItems);
+  }
+
+  /**
+   * @deprecated Use updateMediaStatus instead
+   */
+  public updatePhotoStatus(id: string, status: MediaStatus, errorMessage?: string): boolean {
+    return this.updateMediaStatus(id, status, errorMessage);
+  }
+
+  /**
+   * @deprecated Use getMediaByStatus instead
+   */
+  public getPhotosByStatus(status: MediaStatus, limit: number = 100): MediaItem[] {
+    return this.getMediaByTypeAndStatus('photo', status, limit);
+  }
+
+  /**
+   * @deprecated Use getMediaById instead
+   */
+  public getPhotoById(id: string): MediaItem | undefined {
+    return this.getMediaById(id);
+  }
+
+  /**
+   * @deprecated Use getMediaByHash instead
+   */
+  public getPhotoByHash(hash: string): MediaItem | undefined {
+    return this.getMediaByHash(hash);
+  }
+
+  /**
+   * Get media items by MIME type
+   */
+  public getMediaByMimeType(mimeType: string, limit: number = 100): MediaItem[] {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM media_items
+        WHERE mime_type = ?
+        LIMIT ?
+      `);
+
+      return stmt.all(mimeType, limit) as MediaItem[];
+    } catch (error) {
+      const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      logger.error('Failed to get media items by MIME type', { error: safeError, mimeType });
+      throw error;
+    }
+  }
+
+  /**
+   * Get media items by MIME type and status
+   */
+  public getMediaByMimeTypeAndStatus(mimeType: string, status: MediaStatus, limit: number = 100): MediaItem[] {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM media_items
+        WHERE mime_type = ? AND status = ?
+        LIMIT ?
+      `);
+
+      return stmt.all(mimeType, status, limit) as MediaItem[];
+    } catch (error) {
+      const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      logger.error('Failed to get media items by MIME type and status', { error: safeError, mimeType, status });
+      throw error;
+    }
+  }
+
+  /**
+   * Get the count of media items by MIME type
+   */
+  public getCountByMimeType(mimeType: string): number {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT COUNT(*) as count FROM media_items
+        WHERE mime_type = ?
+      `);
+
+      const result = stmt.get(mimeType) as { count: number };
+      return result.count;
+    } catch (error) {
+      const safeError = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined };
+      logger.error('Failed to get count of media items by MIME type', { error: safeError, mimeType });
       throw error;
     }
   }
