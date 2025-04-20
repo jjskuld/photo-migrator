@@ -9,10 +9,29 @@ This document outlines the development tasks required to build the uploader appl
 
 ## Phase 0: Prerequisites & Setup
 
-- [ ] **Task 0.1:** Set up Google Cloud Project and OAuth Credentials.
-  - *Detail:* Create a project in Google Cloud Console, enable the "Photos Library API", configure the OAuth consent screen (Desktop app type), and create OAuth 2.0 Client ID credentials.
+- [x] ✅ **Task 0.1:** Set up Google Cloud Project and OAuth Credentials for Desktop App.
+  *Detail:* Requires manual steps in Google Cloud Console and automated steps via `gcloud` CLI.
+  *Project ID:* `soda-381700`
+  1.  **[Automated - Optional]** Authenticate CLI: Run `gcloud auth login` and follow prompts if not already authenticated with the correct account.
+  2.  **[Automated]** Set active `gcloud` project: `gcloud config set project photo-migrator-457412`.
+  3.  **[Automated]** Enable Photos Library API: `gcloud services enable photoslibrary.googleapis.com --project=photo-migrator-457412`.
+  4.  **[Manual - Console]** Navigate to APIs & Services > OAuth consent screen.
+  5.  **[Manual - Console]** Configure Consent Screen:
+      *   Select User Type: **External**.
+      *   Fill in App name (e.g., "Photo Migrator"), User support email, Developer contact info.
+      *   Save and continue (scopes can be skipped).
+      *   Add your Google Account email as a **Test User**.
+      *   Save/Complete consent screen setup.
+  6.  **[Manual - Console]** Navigate to APIs & Services > Credentials.
+  7.  **[Manual - Console]** Create Credentials:
+      *   Click **+ CREATE CREDENTIALS** > **OAuth client ID**.
+      *   Select Application type: **Desktop app**.
+      *   Give it a name (e.g., "Photo Migrator Desktop Client").
+      *   Click **Create**.
+  8.  **[Manual - Local]** Copy the displayed **Client ID** and **Client Secret**.
+  9.  **[Manual - Local]** Update the `~/.config/photo-migrator/config.json` file with these credentials.
   - *Outcome:* Obtain the `CLIENT_ID` and `CLIENT_SECRET` required for `config.json` (see Task 1.3.3 & FSD 3.2.1).
-  - *Resource:* [Google Cloud Console](https://console.cloud.google.com/)
+  *Resource:* [Google Cloud Console](https://console.cloud.google.com/)
 
 ---
 
